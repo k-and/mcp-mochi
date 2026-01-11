@@ -296,7 +296,7 @@ const ListCardsResponseSchema = z
   .strip();
 
 type CreateCardResponse = z.infer<typeof CreateCardResponseSchema>;
-type ListDecksResponse = z.infer<typeof ListDecksResponseSchema>["docs"];
+type ListDecksResponse = z.infer<typeof ListDecksResponseSchema>;
 type ListCardsResponse = z.infer<typeof ListCardsResponseSchema>;
 
 const DeckSchema = z
@@ -318,7 +318,9 @@ const DeckSchema = z
       .object({ date: z.string() })
       .optional()
       .nullable()
-      .describe("Whether the deck is trashed"),
+      .describe(
+        "Timestamp when the deck was trashed, in ISO 8601 format (matching JavaScript's Date#toJSON)"
+      ),
   })
   .strip();
 
@@ -335,7 +337,10 @@ const DueCardSchema = z
     content: z.string().describe("Markdown content of the card"),
     name: z.string().describe("Display name of the card"),
     "deck-id": z.string().describe("ID of the deck containing the card"),
-    "new?": z.boolean().describe("Whether the card is new (never reviewed)"),
+    "new?": z
+      .boolean()
+      .optional()
+      .describe("Whether the card is new (never reviewed)"),
   })
   .passthrough();
 
@@ -391,9 +396,13 @@ export class MochiClient {
       ? ListDecksParamsSchema.parse(params)
       : undefined;
     const response = await this.api.get("/decks", { params: validatedParams });
-    return ListDecksResponseSchema.parse(response.data)
-      .docs.filter((deck) => !deck["archived?"] && !deck["trashed?"])
-      .sort((a, b) => a.sort - b.sort);
+    const parsed = ListDecksResponseSchema.parse(response.data);
+    return {
+      bookmark: parsed.bookmark,
+      docs: parsed.docs
+        .filter((deck) => !deck["archived?"] && !deck["trashed?"])
+        .sort((a, b) => a.sort - b.sort),
+    };
   }
 
   async listCards(params?: ListCardsParams): Promise<ListCardsResponse> {
@@ -487,6 +496,10 @@ export class MochiClient {
     return this.createCard(createRequest);
   }
 
+  async deleteCard(cardId: string): Promise<void> {
+    await this.api.delete(`/cards/${cardId}`);
+  }
+
   async addAttachment(
     request: AddAttachmentRequest
   ): Promise<{ filename: string; markdown: string }> {
@@ -552,7 +565,38 @@ const server = new McpServer({
 // Schema for update flashcard tool (combines cardId with update fields)
 const UpdateFlashcardToolSchema = z.object({
   cardId: z.string().describe("ID of the card to update"),
-  ...UpdateCardRequestSchema.shape,
+  content: z
+    .string()
+    .optional()
+    .describe("Updated markdown content of the card"),
+  deckId: z.string().optional().describe("ID of the deck to move the card to"),
+  templateId: z.string().optional().describe("Template ID to use for the card"),
+  fields: z
+    .record(z.string(), CreateCardFieldSchema)
+    .optional()
+    .describe("Updated map of field IDs to field values"),
+  trashed: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true to soft-delete (move to trash). This can be undone by setting to false."
+    ),
+});
+
+// Schema for delete flashcard tool
+const DeleteFlashcardToolSchema = z.object({
+  cardId: z
+    .string()
+    .describe("ID of the card to permanently delete. This cannot be undone."),
+});
+
+// Schema for archive flashcard tool
+const ArchiveFlashcardToolSchema = z.object({
+  cardId: z.string().describe("ID of the card to archive"),
+  archived: z
+    .boolean()
+    .default(true)
+    .describe("Set to true to archive, false to unarchive"),
 });
 
 // Output schema for attachment response
@@ -679,7 +723,7 @@ server.registerTool(
   {
     title: "Update flashcard on Mochi",
     description:
-      "Update or delete an existing flashcard. Set trashed to true to delete.",
+      "Update an existing flashcard's content, deck, template, or fields. Use mochi_delete_flashcard to delete or mochi_archive_flashcard to archive.",
     inputSchema: UpdateFlashcardToolSchema,
     outputSchema: UpdateCardResponseSchema,
     annotations: {
@@ -693,6 +737,73 @@ server.registerTool(
     try {
       const { cardId, ...updateArgs } = args;
       const response = await mochiClient.updateCard(cardId, updateArgs);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+// Output schema for delete response
+const DeleteFlashcardResponseSchema = z
+  .object({
+    success: z.boolean().describe("Whether the deletion was successful"),
+    cardId: z.string().describe("ID of the deleted card"),
+  })
+  .strict();
+
+server.registerTool(
+  "mochi_delete_flashcard",
+  {
+    title: "Delete flashcard on Mochi",
+    description:
+      "Permanently delete a flashcard and its attachments. WARNING: This cannot be undone. For soft deletion, use mochi_update_flashcard with trashed: true.",
+    inputSchema: DeleteFlashcardToolSchema,
+    outputSchema: DeleteFlashcardResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof DeleteFlashcardToolSchema>) => {
+    try {
+      await mochiClient.deleteCard(args.cardId);
+      const response = { success: true, cardId: args.cardId };
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "mochi_archive_flashcard",
+  {
+    title: "Archive flashcard on Mochi",
+    description:
+      "Archive or unarchive a flashcard. Archived cards are hidden from review but not deleted.",
+    inputSchema: ArchiveFlashcardToolSchema,
+    outputSchema: UpdateCardResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof ArchiveFlashcardToolSchema>) => {
+    try {
+      const response = await mochiClient.updateCard(args.cardId, {
+        archived: args.archived,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
@@ -778,7 +889,7 @@ server.registerTool(
       const response = await mochiClient.listDecks(args);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
-        structuredContent: { bookmark: "", docs: response },
+        structuredContent: response,
       };
     } catch (error) {
       return formatToolError(error);
@@ -879,14 +990,14 @@ server.registerResource(
     mimeType: "application/json",
   },
   async () => {
-    const decks = await mochiClient.listDecks();
+    const response = await mochiClient.listDecks();
     return {
       contents: [
         {
           uri: "mochi://decks",
           mimeType: "application/json",
           text: JSON.stringify(
-            decks.map((deck) => ({ id: deck.id, name: deck.name })),
+            response.docs.map((deck) => ({ id: deck.id, name: deck.name })),
             null,
             2
           ),
