@@ -1,21 +1,12 @@
 #!/usr/bin/env node
 
-import {
-  CallToolRequestSchema,
-  GetPromptRequestSchema,
-  ListPromptsRequestSchema,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
 import axios, { AxiosInstance } from "axios";
 import FormData from "form-data";
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import dotenv from "dotenv";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 
 dotenv.config();
 
@@ -55,8 +46,8 @@ const CreateCardRequestSchema = z.object({
     .describe(
       "Markdown content of the card. Separate front and back using a horizontal rule (---) or use brackets for {{cloze deletion}}."
     ),
-  "deck-id": z.string().min(1).describe("ID of the deck to create the card in"),
-  "template-id": z
+  deckId: z.string().min(1).describe("ID of the deck to create the card in"),
+  templateId: z
     .string()
     .optional()
     .nullable()
@@ -64,7 +55,7 @@ const CreateCardRequestSchema = z.object({
     .describe(
       "Optional template ID to use for the card. Defaults to null if not set."
     ),
-  "manual-tags": z
+  tags: z
     .array(z.string())
     .optional()
     .describe("Optional array of tags to add to the card"),
@@ -81,16 +72,10 @@ const UpdateCardRequestSchema = z.object({
     .string()
     .optional()
     .describe("Updated markdown content of the card"),
-  "deck-id": z
-    .string()
-    .optional()
-    .describe("ID of the deck to move the card to"),
-  "template-id": z
-    .string()
-    .optional()
-    .describe("Template ID to use for the card"),
-  "archived?": z.boolean().optional().describe("Whether the card is archived"),
-  "trashed?": z.string().optional().describe("Whether the card is trashed"),
+  deckId: z.string().optional().describe("ID of the deck to move the card to"),
+  templateId: z.string().optional().describe("Template ID to use for the card"),
+  archived: z.boolean().optional().describe("Whether the card is archived"),
+  trashed: z.boolean().optional().describe("Whether the card is trashed"),
   fields: z
     .record(z.string(), CreateCardFieldSchema)
     .optional()
@@ -105,7 +90,7 @@ const ListDecksParamsSchema = z.object({
 });
 
 const ListCardsParamsSchema = z.object({
-  "deck-id": z.string().optional().describe("Get cards from deck ID"),
+  deckId: z.string().optional().describe("Get cards from deck ID"),
   limit: z
     .number()
     .min(1)
@@ -126,7 +111,7 @@ const ListTemplatesParamsSchema = z.object({
 });
 
 const GetDueCardsParamsSchema = z.object({
-  "deck-id": z
+  deckId: z
     .string()
     .optional()
     .describe("Optional deck ID to filter due cards by a specific deck"),
@@ -139,11 +124,11 @@ const GetDueCardsParamsSchema = z.object({
 });
 
 const CreateCardFromTemplateSchema = z.object({
-  "template-id": z
+  templateId: z
     .string()
     .min(1)
     .describe("ID of the template to use. Get this from mochi_list_templates."),
-  "deck-id": z
+  deckId: z
     .string()
     .min(1)
     .describe(
@@ -154,7 +139,7 @@ const CreateCardFromTemplateSchema = z.object({
     .describe(
       'Map of field NAMES (not IDs) to values. E.g., { "Word": "serendipity" } or { "Front": "Question?", "Back": "Answer" }'
     ),
-  "manual-tags": z
+  tags: z
     .array(z.string())
     .optional()
     .describe("Optional array of tags to add to the card"),
@@ -162,13 +147,13 @@ const CreateCardFromTemplateSchema = z.object({
 
 // Schema for adding attachments
 const AddAttachmentSchema = z.object({
-  "card-id": z.string().min(1).describe("ID of the card to attach the file to"),
+  cardId: z.string().min(1).describe("ID of the card to attach the file to"),
   data: z.string().min(1).describe("Base64-encoded file data"),
   filename: z
     .string()
     .min(1)
     .describe("Filename with extension (e.g., 'image.png', 'audio.mp3')"),
-  "content-type": z
+  contentType: z
     .string()
     .optional()
     .describe(
@@ -177,6 +162,43 @@ const AddAttachmentSchema = z.object({
 });
 
 type AddAttachmentRequest = z.infer<typeof AddAttachmentSchema>;
+
+// Helper to transform camelCase params to hyphenated format for Mochi API
+function toMochiCreateCardRequest(
+  params: CreateCardRequest
+): Record<string, unknown> {
+  return {
+    content: params.content,
+    "deck-id": params.deckId,
+    "template-id": params.templateId,
+    "manual-tags": params.tags,
+    fields: params.fields,
+  };
+}
+
+function toMochiUpdateCardRequest(
+  params: UpdateCardRequest
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (params.content !== undefined) result.content = params.content;
+  if (params.deckId !== undefined) result["deck-id"] = params.deckId;
+  if (params.templateId !== undefined)
+    result["template-id"] = params.templateId;
+  if (params.archived !== undefined) result["archived?"] = params.archived;
+  if (params.trashed !== undefined) result["trashed?"] = params.trashed;
+  if (params.fields !== undefined) result.fields = params.fields;
+  return result;
+}
+
+function toMochiListCardsParams(
+  params: ListCardsParams
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (params.deckId !== undefined) result["deck-id"] = params.deckId;
+  if (params.limit !== undefined) result.limit = params.limit;
+  if (params.bookmark !== undefined) result.bookmark = params.bookmark;
+  return result;
+}
 
 const TemplateFieldSchema = z.object({
   id: z.string().describe("Unique identifier for the template field"),
@@ -251,7 +273,7 @@ const CardSchema = z
     name: z.string().describe("Display name of the card"),
     "deck-id": z.string().describe("ID of the deck containing the card"),
     fields: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe(
         "Map of field IDs to field values. Need to match the field IDs in the template"
@@ -260,6 +282,7 @@ const CardSchema = z
   .strip();
 
 const CreateCardResponseSchema = CardSchema.strip();
+const UpdateCardResponseSchema = CardSchema.strip();
 
 const ListCardsResponseSchema = z
   .object({
@@ -340,7 +363,8 @@ export class MochiClient {
   }
 
   async createCard(request: CreateCardRequest): Promise<CreateCardResponse> {
-    const response = await this.api.post("/cards", request);
+    const mochiRequest = toMochiCreateCardRequest(request);
+    const response = await this.api.post("/cards", mochiRequest);
     return CreateCardResponseSchema.parse(response.data);
   }
 
@@ -348,7 +372,8 @@ export class MochiClient {
     cardId: string,
     request: UpdateCardRequest
   ): Promise<CreateCardResponse> {
-    const response = await this.api.post(`/cards/${cardId}`, request);
+    const mochiRequest = toMochiUpdateCardRequest(request);
+    const response = await this.api.post(`/cards/${cardId}`, mochiRequest);
     return CreateCardResponseSchema.parse(response.data);
   }
 
@@ -357,16 +382,19 @@ export class MochiClient {
       ? ListDecksParamsSchema.parse(params)
       : undefined;
     const response = await this.api.get("/decks", { params: validatedParams });
-    return ListDecksResponseSchema.parse(response.data).docs.filter(
-      (deck) => !deck["archived?"] && !deck["trashed?"]
-    );
+    return ListDecksResponseSchema.parse(response.data)
+      .docs.filter((deck) => !deck["archived?"] && !deck["trashed?"])
+      .sort((a, b) => a.sort - b.sort);
   }
 
   async listCards(params?: ListCardsParams): Promise<ListCardsResponse> {
     const validatedParams = params
       ? ListCardsParamsSchema.parse(params)
       : undefined;
-    const response = await this.api.get("/cards", { params: validatedParams });
+    const mochiParams = validatedParams
+      ? toMochiListCardsParams(validatedParams)
+      : undefined;
+    const response = await this.api.get("/cards", { params: mochiParams });
     return ListCardsResponseSchema.parse(response.data);
   }
 
@@ -388,7 +416,7 @@ export class MochiClient {
     const validatedParams = params
       ? GetDueCardsParamsSchema.parse(params)
       : undefined;
-    const deckId = validatedParams?.["deck-id"];
+    const deckId = validatedParams?.deckId;
     const endpoint = deckId ? `/due/${deckId}` : "/due";
     const queryParams = validatedParams?.date
       ? { date: validatedParams.date }
@@ -408,7 +436,7 @@ export class MochiClient {
     request: CreateCardFromTemplateParams
   ): Promise<CreateCardResponse> {
     // Fetch the template to get field definitions
-    const template = await this.getTemplate(request["template-id"]);
+    const template = await this.getTemplate(request.templateId);
 
     // Map field names to IDs
     const fieldNameToId: Record<string, string> = {};
@@ -441,10 +469,10 @@ export class MochiClient {
 
     const createRequest: CreateCardRequest = {
       content,
-      "deck-id": request["deck-id"],
-      "template-id": request["template-id"],
+      deckId: request.deckId,
+      templateId: request.templateId,
       fields,
-      "manual-tags": request["manual-tags"],
+      tags: request.tags,
     };
 
     return this.createCard(createRequest);
@@ -454,7 +482,7 @@ export class MochiClient {
     request: AddAttachmentRequest
   ): Promise<{ filename: string; markdown: string }> {
     // Infer content-type from filename if not provided
-    let contentType = request["content-type"];
+    let contentType = request.contentType;
     if (!contentType) {
       const ext = request.filename.split(".").pop()?.toLowerCase();
       const mimeTypes: Record<string, string> = {
@@ -485,7 +513,7 @@ export class MochiClient {
 
     // Upload attachment
     await this.api.post(
-      `/cards/${request["card-id"]}/attachments/${encodeURIComponent(
+      `/cards/${request.cardId}/attachments/${encodeURIComponent(
         request.filename
       )}`,
       formData,
@@ -507,372 +535,370 @@ export class MochiClient {
 }
 
 // Server setup
-const server = new Server(
-  {
-    name: "mcp-server/mochi",
-    version: "1.0.3",
-  },
-  {
-    capabilities: {
-      tools: {},
-      resources: {},
-      prompts: {},
-    },
-  }
-);
+const server = new McpServer({
+  name: "mcp-server/mochi",
+  version: "1.0.3",
+});
 
-// Set up request handlers
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "mochi_create_flashcard",
-      description: `Create a new flashcard in Mochi. Use this whenever I ask questions about something that is interesting to remember. E.g. if I ask "What is the capital of France?", you should create a new flashcard with the content "What is the capital of France?\n---\nParis".
+// Schema for update flashcard tool (combines cardId with update fields)
+const UpdateFlashcardToolSchema = z.object({
+  cardId: z.string().describe("ID of the card to update"),
+  ...UpdateCardRequestSchema.shape,
+});
 
-## Parameters
-
-### deck-id (required)
-ALWAYS look up deck-id with the mochi_list_decks tool.
-
-### content (required)
-The markdown content of the card. Separate front and back using a horizontal rule (---).
-
-### template-id (optional)
-When using a template, the field ids MUST match the template ones. If not using a template, omit this field. Consider using mochi_create_card_from_template instead for easier template-based card creation.
-
-### fields (optional)
-A map of field IDs (keyword) to field values. Only required when using a template. The field IDs must correspond to the fields defined on the template.
-
-## Example without template
-{
-  "content": "What is the capital of France?\n---\nParis",
-  "deck-id": "btmZUXWM"
-}
-
-## Example with template
-{
-  "content": "New card from API. ![](@media/foobar03.png)",
-  "deck-id": "btmZUXWM",
-  "template-id": "8BtaEAXe",
-  "fields": {
-    "name": {
-      "id": "name",
-      "value": "Hello,"
-    },
-    "JNEnw1e7": {
-      "id": "JNEnw1e7",
-      "value": "World!"
-    }
-  }
-}
-
-## Properties of good flashcards:
-- **focused:** A question or answer involving too much detail will dull your concentration and stimulate incomplete retrievals, leaving some bulbs unlit.
-- **precise** about what they're asking for. Vague questions will elicit vague answers, which won't reliably light the bulbs you're targeting.
-- **consistent** answers, lighting the same bulbs each time you perform the task.
-- **tractable**: Write prompts which you can almost always answer correctly. This often means breaking the task down, or adding cues
-- **effortful**: You shouldn't be able to trivially infer the answer.
-`,
-      inputSchema: zodToJsonSchema(CreateCardRequestSchema),
-      annotations: {
-        title: "Create flashcard on Mochi",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    {
-      name: "mochi_create_card_from_template",
-      description: `Create a flashcard using a template with field names (not IDs). This is the preferred way to create template-based cards.
-
-The MCP automatically:
-1. Fetches the template to get field definitions
-2. Maps provided field names to their IDs
-3. Builds the fields object in the format Mochi expects
-
-## Parameters
-
-### template-id (required)
-The ID of the template to use. Get available templates with mochi_list_templates.
-
-### deck-id (required)
-The ID of the deck to create the card in. Get available decks with mochi_list_decks.
-
-### fields (required)
-A map of field **names** (not IDs) to their values. The MCP will map names to IDs automatically.
-
-### manual-tags (optional)
-Array of tags to add to the card.
-
-## Example: "Word" template (single field)
-{
-  "template-id": "mzROLUuD",
-  "deck-id": "HGOW9dWP",
-  "fields": {
-    "Word": "serendipity"
-  }
-}
-
-## Example: "Basic Flashcard" template (front/back)
-{
-  "template-id": "Jyv52qHg",
-  "deck-id": "jJAIs2ZZ",
-  "fields": {
-    "Front": "What is the capital of France?",
-    "Back": "Paris"
-  }
-}`,
-      inputSchema: zodToJsonSchema(CreateCardFromTemplateSchema),
-      annotations: {
-        title: "Create flashcard from template on Mochi",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    {
-      name: "mochi_update_flashcard",
-      description: `Update or delete an existing flashcard in Mochi. To delete set trashed to true.`,
-      inputSchema: zodToJsonSchema(
-        z.object({
-          "card-id": z.string(),
-          ...UpdateCardRequestSchema.shape,
-        })
-      ),
-      annotations: {
-        title: "Update flashcard on Mochi",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    {
-      name: "mochi_add_attachment",
-      description: `Add an attachment (image, audio, etc.) to a card using base64 data.
-
-Use this when you have base64-encoded file data (e.g., from images inserted in chat).
-
-## Parameters
-
-### card-id (required)
-The ID of the card to attach the file to.
-
-### data (required)
-Base64-encoded file data.
-
-### filename (required)
-Filename with extension (e.g., "image.png", "audio.mp3").
-
-### content-type (optional)
-MIME type (e.g., "image/png"). Can be inferred from filename.
-
-## Returns
-The markdown reference to use in card content: \`![](@media/filename)\`
-
-## Note
-For URL-based images, just use markdown directly in card content: \`![description](https://example.com/image.png)\` - no attachment upload needed.`,
-      inputSchema: zodToJsonSchema(AddAttachmentSchema),
-      annotations: {
-        title: "Add attachment to flashcard on Mochi",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: true,
-      },
-    },
-    {
-      name: "mochi_list_flashcards",
-      description: "List flashcards in pages of 10 cards per page",
-      inputSchema: zodToJsonSchema(ListCardsParamsSchema),
-      annotations: {
-        title: "List flashcards on Mochi",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    {
-      name: "mochi_list_decks",
-      description: "List all decks",
-      inputSchema: zodToJsonSchema(ListDecksParamsSchema),
-      annotations: {
-        title: "List decks on Mochi",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    {
-      name: "mochi_list_templates",
-      description: `List all templates. Templates can be used to create cards with pre-defined fields.
-
-Use mochi_create_card_from_template for easy template-based card creation with field names instead of IDs.
-
-Example response:
-{
-  "bookmark": "g1AAAABAeJzLYWBgYMpgSmHgKy5JLCrJTq2MT8lPzkzJBYpzVBn4JgaaVZiC5Dlg8igyWQAxwRHd",
-  "docs": [
-    {
-      "id": "YDELNZSu",
-      "name": "Simple flashcard",
-      "content": "# << Front >>\n---\n<< Back >>",
-      "pos": "s",
-      "fields": {
-        "name": {
-          "id": "name",
-          "name": "Front",
-          "pos": "a"
-        },
-        "Ysrde7Lj": {
-          "id": "Ysrde7Lj",
-          "name": "Back",
-          "pos": "m",
-          "options": {
-            "multi-line?": true
-          }
-        }
-      }
-    },
-    ...
-  ]
-}`,
-      inputSchema: zodToJsonSchema(ListTemplatesParamsSchema),
-      annotations: {
-        title: "List templates on Mochi",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-    {
-      name: "mochi_get_due_cards",
-      description: `Get flashcards that are due for review. Returns cards scheduled for review on the specified date (defaults to today).
-
-## Parameters
-
-### deck-id (optional)
-Filter to only show due cards from a specific deck.
-
-### date (optional)
-ISO 8601 date string (e.g., "2026-01-11T00:00:00.000Z") to get cards due on that date. Defaults to today.`,
-      inputSchema: zodToJsonSchema(GetDueCardsParamsSchema),
-      annotations: {
-        title: "Get due flashcards on Mochi",
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    },
-  ],
-}));
+// Output schema for attachment response
+const AddAttachmentResponseSchema = z.object({
+  filename: z.string().describe("The filename of the uploaded attachment"),
+  markdown: z
+    .string()
+    .describe(
+      "Markdown reference to use in card content, e.g. ![](@media/filename)"
+    ),
+});
 
 // Create Mochi client
 const mochiClient = new MochiClient(MOCHI_API_KEY);
 
-// Add resource handlers
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
+// Helper to format errors for tool responses
+function formatToolError(error: unknown): {
+  content: Array<{ type: "text"; text: string }>;
+  isError: true;
+} {
+  if (error instanceof z.ZodError) {
+    const formattedErrors = error.issues.map((issue) => {
+      const path = issue.path.join(".");
+      const message =
+        issue.code === "invalid_type" && issue.message.includes("Required")
+          ? `Required field '${path}' is missing`
+          : issue.message;
+      return `${path ? `${path}: ` : ""}${message}`;
+    });
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Validation error:\n${formattedErrors.join("\n")}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+  if (error instanceof MochiError) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Mochi API error (${error.statusCode}): ${error.message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
   return {
-    resources: [
+    content: [
       {
-        uri: `mochi://decks`,
-        name: "All Mochi Decks",
-        description: `List of all decks in Mochi.`,
-        mimeType: "application/json",
-      },
-      {
-        uri: `mochi://templates`,
-        name: "All Mochi Templates",
-        description: `List of all templates in Mochi.`,
-        mimeType: "application/json",
+        type: "text",
+        text: `Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
       },
     ],
+    isError: true,
   };
-});
+}
 
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const uri = request.params.uri;
-
-  switch (uri) {
-    case "mochi://decks": {
-      const decks = await mochiClient.listDecks();
-
+// Register tools
+// Note: Using type assertions due to Zod version compatibility between SDK (v4) and project (v3)
+server.registerTool(
+  "mochi_create_flashcard",
+  {
+    title: "Create flashcard on Mochi",
+    description:
+      "Create a new flashcard in Mochi. Look up deckId with mochi_list_decks first. For template-based cards, prefer mochi_create_card_from_template.",
+    inputSchema: CreateCardRequestSchema,
+    outputSchema: CreateCardResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: CreateCardRequest) => {
+    try {
+      const response = await mochiClient.createCard(args);
       return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(
-              decks.map((deck) => ({
-                id: deck.id,
-                name: deck.name,
-                archived: deck["archived?"],
-              })),
-              null,
-              2
-            ),
-          },
-        ],
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
       };
-    }
-    case "mochi://templates": {
-      const templates = await mochiClient.listTemplates();
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: "application/json",
-            text: JSON.stringify(templates, null, 2),
-          },
-        ],
-      };
-    }
-    default: {
-      throw new Error("Invalid resource URI");
+    } catch (error) {
+      return formatToolError(error);
     }
   }
-});
+);
 
-const CreateFlashcardPromptSchema = z.object({
-  input: z
-    .string()
-    .describe("The information to base the flashcard on.")
-    .optional(),
-});
+server.registerTool(
+  "mochi_create_card_from_template",
+  {
+    title: "Create flashcard from template on Mochi",
+    description:
+      "Create a flashcard using a template with field names (not IDs). Preferred way to create template-based cards. Automatically maps field names to IDs. Get templates with mochi_list_templates, decks with mochi_list_decks.",
+    inputSchema: CreateCardFromTemplateSchema,
+    outputSchema: CreateCardResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: CreateCardFromTemplateParams) => {
+    try {
+      const response = await mochiClient.createCardFromTemplate(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
 
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
-  return {
-    prompts: [
-      {
-        name: "write-flashcard",
-        description: "Write a flashcard based on user-provided information.",
-        arguments: [
-          {
-            name: "input",
-            description: "The information to base the flashcard on.",
-          },
-        ],
-      },
-    ],
-  };
-});
+server.registerTool(
+  "mochi_update_flashcard",
+  {
+    title: "Update flashcard on Mochi",
+    description:
+      "Update or delete an existing flashcard. Set trashed to true to delete.",
+    inputSchema: UpdateFlashcardToolSchema,
+    outputSchema: UpdateCardResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof UpdateFlashcardToolSchema>) => {
+    try {
+      const { cardId, ...updateArgs } = args;
+      const response = await mochiClient.updateCard(cardId, updateArgs);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
 
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  const params = CreateFlashcardPromptSchema.parse(request.params.arguments);
-  const { input } = params;
+server.registerTool(
+  "mochi_add_attachment",
+  {
+    title: "Add attachment to flashcard on Mochi",
+    description:
+      "Add an attachment (image, audio, etc.) to a card using base64 data. For URL-based images, just use markdown directly in card content instead.",
+    inputSchema: AddAttachmentSchema,
+    outputSchema: AddAttachmentResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: AddAttachmentRequest) => {
+    try {
+      const response = await mochiClient.addAttachment(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
 
-  return {
+server.registerTool(
+  "mochi_list_flashcards",
+  {
+    title: "List flashcards on Mochi",
+    description:
+      "List flashcards, optionally filtered by deck. Returns paginated results.",
+    inputSchema: ListCardsParamsSchema.shape,
+    outputSchema: ListCardsResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args) => {
+    try {
+      const response = await mochiClient.listCards(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "mochi_list_decks",
+  {
+    title: "List decks on Mochi",
+    description: "List all decks. Use to get deckId for other operations.",
+    inputSchema: ListDecksParamsSchema.shape,
+    outputSchema: ListDecksResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args) => {
+    try {
+      const response = await mochiClient.listDecks(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: { bookmark: "", docs: response },
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "mochi_list_templates",
+  {
+    title: "List templates on Mochi",
+    description:
+      "List all templates. Use with mochi_create_card_from_template for easy template-based card creation.",
+    inputSchema: ListTemplatesParamsSchema.shape,
+    outputSchema: ListTemplatesResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args) => {
+    try {
+      const response = await mochiClient.listTemplates(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "mochi_get_due_cards",
+  {
+    title: "Get due flashcards on Mochi",
+    description:
+      "Get flashcards due for review on a specific date (defaults to today).",
+    inputSchema: GetDueCardsParamsSchema.shape,
+    outputSchema: GetDueCardsResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args) => {
+    try {
+      const response = await mochiClient.getDueCards(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+// Register resources
+server.registerResource(
+  "decks",
+  "mochi://decks",
+  {
+    description: "List of all decks in Mochi.",
+    mimeType: "application/json",
+  },
+  async () => {
+    const decks = await mochiClient.listDecks();
+    return {
+      contents: [
+        {
+          uri: "mochi://decks",
+          mimeType: "application/json",
+          text: JSON.stringify(
+            decks.map((deck) => ({ id: deck.id, name: deck.name })),
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+server.registerResource(
+  "templates",
+  "mochi://templates",
+  {
+    description: "List of all templates in Mochi.",
+    mimeType: "application/json",
+  },
+  async () => {
+    const templates = await mochiClient.listTemplates();
+    return {
+      contents: [
+        {
+          uri: "mochi://templates",
+          mimeType: "application/json",
+          text: JSON.stringify(templates, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+// Register prompts
+server.registerPrompt(
+  "write-flashcard",
+  {
+    description: "Write a flashcard based on user-provided information.",
+    argsSchema: {
+      input: z
+        .string()
+        .describe("The information to base the flashcard on.")
+        .optional(),
+    },
+  },
+  async ({ input }) => ({
     messages: [
       {
         role: "user",
         content: {
           type: "text",
-          text: `Create a flashcard using the info below while adhering to these principles: 
+          text: `Create a flashcard using the info below while adhering to these principles:
 - Keep questions and answers atomic.
 - Utilize cloze prompts when applicable, like "This is a text with {{hidden}} part. Then don't use '---' separator.".
 - Focus on effective retrieval practice by being concise and clear.
@@ -882,192 +908,8 @@ Input: ${input}
         },
       },
     ],
-  };
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  try {
-    switch (request.params.name) {
-      case "mochi_create_flashcard": {
-        const validatedArgs = CreateCardRequestSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.createCard(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_create_card_from_template": {
-        const validatedArgs = CreateCardFromTemplateSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.createCardFromTemplate(
-          validatedArgs
-        );
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_update_flashcard": {
-        const { "card-id": cardId, ...updateArgs } = z
-          .object({
-            "card-id": z.string(),
-            ...UpdateCardRequestSchema.shape,
-          })
-          .parse(request.params.arguments);
-        const response = await mochiClient.updateCard(cardId, updateArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_add_attachment": {
-        const validatedArgs = AddAttachmentSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.addAttachment(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_list_decks": {
-        const validatedArgs = ListDecksParamsSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.listDecks(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_list_flashcards": {
-        const validatedArgs = ListCardsParamsSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.listCards(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_list_templates": {
-        const validatedArgs = ListTemplatesParamsSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.listTemplates(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      case "mochi_get_due_cards": {
-        const validatedArgs = GetDueCardsParamsSchema.parse(
-          request.params.arguments
-        );
-        const response = await mochiClient.getDueCards(validatedArgs);
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-          isError: false,
-        };
-      }
-      default:
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Unknown tool: ${request.params.name}`,
-            },
-          ],
-          isError: true,
-        };
-    }
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      const formattedErrors = error.errors.map((err) => {
-        const path = err.path.join(".");
-        const message =
-          err.code === "invalid_type" && err.message.includes("Required")
-            ? `Required field '${path}' is missing`
-            : err.message;
-        return `${path ? `${path}: ` : ""}${message}`;
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Validation error:\n${formattedErrors.join("\n")}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    if (error instanceof MochiError) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Mochi API error (${error.statusCode}): ${error.message}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        },
-      ],
-      isError: true,
-    };
-  }
-});
+  })
+);
 
 async function runServer() {
   const transport = new StdioServerTransport();
