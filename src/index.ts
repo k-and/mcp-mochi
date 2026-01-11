@@ -110,6 +110,10 @@ const ListTemplatesParamsSchema = z.object({
     .describe("Pagination bookmark for fetching next page of results"),
 });
 
+const GetTemplateParamsSchema = z.object({
+  templateId: z.string().min(1).describe("ID of the template to fetch"),
+});
+
 const GetDueCardsParamsSchema = z.object({
   deckId: z
     .string()
@@ -300,6 +304,11 @@ const DeckSchema = z
     id: z.string().describe("Unique identifier for the deck"),
     sort: z.number().describe("Sort order of the deck"),
     name: z.string().describe("Display name of the deck"),
+    "template-id": z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Template ID associated with this deck, if any"),
     "archived?": z
       .boolean()
       .optional()
@@ -614,7 +623,7 @@ server.registerTool(
   {
     title: "Create flashcard on Mochi",
     description:
-      "Create a new flashcard in Mochi. Look up deckId with mochi_list_decks first. For template-based cards, prefer mochi_create_card_from_template.",
+      "Create a new flashcard in Mochi. Look up deckId with mochi_list_decks first. Use mochi_create_card_from_template if the deck has a template-id defined.",
     inputSchema: CreateCardRequestSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -642,7 +651,7 @@ server.registerTool(
   {
     title: "Create flashcard from template on Mochi",
     description:
-      "Create a flashcard using a template with field names (not IDs). Preferred way to create template-based cards. Automatically maps field names to IDs. Get templates with mochi_list_templates, decks with mochi_list_decks.",
+      "Create a flashcard using a template with field names (not IDs). Automatically maps field names to IDs. Get templates with mochi_list_templates, decks with mochi_list_decks.",
     inputSchema: CreateCardFromTemplateSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -806,6 +815,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  "mochi_get_template",
+  {
+    title: "Get template by ID on Mochi",
+    description:
+      "Get a single template by its ID. Use to see template fields and structure.",
+    inputSchema: GetTemplateParamsSchema.shape,
+    outputSchema: TemplateSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args: z.infer<typeof GetTemplateParamsSchema>) => {
+    try {
+      const response = await mochiClient.getTemplate(args.templateId);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
   "mochi_get_due_cards",
   {
     title: "Get due flashcards on Mochi",
@@ -903,6 +940,7 @@ server.registerPrompt(
 - Utilize cloze prompts when applicable, like "This is a text with {{hidden}} part. Then don't use '---' separator.".
 - Focus on effective retrieval practice by being concise and clear.
 - Make it just challenging enough to reinforce specific facts.
+- Only use mochi_create_card_from_template if the deck has a template-id defined. Otherwise use mochi_create_flashcard.
 Input: ${input}
 `,
         },
