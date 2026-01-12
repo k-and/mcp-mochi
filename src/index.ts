@@ -44,7 +44,7 @@ const CreateCardRequestSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Markdown content of the card. Separate the question and answer with a horizontal rule surrounded by newlines: '\\n---\\n'"
+      "Markdown content of the card. Separate the question and answer with a horizontal rule (3 dashes) surrounded by newlines: '\\n---\\n'. IMPORTANT: the dashes must be on an empty line."
     ),
   deckId: z.string().min(1).describe("ID of the deck to create the card in"),
   templateId: z
@@ -685,7 +685,7 @@ server.registerTool(
   {
     title: "Create flashcard on Mochi",
     description:
-      "Create a new flashcard in Mochi. Look up deckId with list_decks first. Use create_card_from_template if the deck has a template-id defined.",
+      "Create a new flashcard in Mochi. Look up deckId with list_decks first. Use create_card_from_template if the deck has a template-id defined. IMPORTANT: To add images/audio/files: 1) Create the card (include placeholder with id like '![](ChWupMjQ.png)' in content), 2) Use add_attachment with the returned card ID to upload the file with the matching id.",
     inputSchema: CreateCardRequestSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -837,7 +837,7 @@ server.registerTool(
   {
     title: "Add attachment to flashcard on Mochi",
     description:
-      "Add an attachment (image, audio, etc.) to a card using base64 data. For URL-based images, just use markdown directly in card content instead.",
+      "Upload an attachment (image, audio, etc.) to an EXISTING card using base64 data. The card content must already include the markdown reference '![](@media/filename)' where filename matches the uploaded file. Workflow: 1) Create card with create_flashcard (include '![](@media/filename.png)' in content), 2) Upload file with this tool using the card ID and matching filename. For URL-based images, just use standard markdown in card content instead.",
     inputSchema: AddAttachmentSchema,
     outputSchema: AddAttachmentResponseSchema,
     annotations: {
