@@ -63,7 +63,7 @@ const CreateCardRequestSchema = z.object({
     .record(z.string(), z.string())
     .optional()
     .describe(
-      "Map of filename to base64 data. Reference in content as ![alt](filename). Filename: alphanumeric 4-16 chars + extension (e.g., 'img1234.png')."
+      "REQUIRED when referencing images/audio in content. Map of filename (with extension) to base64 data. Example: { 'img1234.png': '<base64>' } and reference as ![](img1234.png). The filename must match EXACTLY including extension."
     ),
 });
 
@@ -151,7 +151,7 @@ const CreateCardFromTemplateSchema = z.object({
     .record(z.string(), z.string())
     .optional()
     .describe(
-      "Map of filename to base64 data. Reference in field values as ![alt](filename). Filename: alphanumeric 4-16 chars + extension (e.g., 'img1234.png')."
+      "REQUIRED when referencing images/audio in fields. Map of filename (with extension) to base64 data. Example: { 'img1234.png': '<base64>' } and reference as ![alt](img1234.png). The filename must match EXACTLY including extension."
     ),
 });
 
