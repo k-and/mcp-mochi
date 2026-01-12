@@ -343,9 +343,9 @@ const GetDueCardsResponseSchema = z.object({
 });
 
 function getApiKey(): string {
-  const apiKey = process.env.API_KEY;
+  const apiKey = process.env.MOCHI_API_KEY;
   if (!apiKey) {
-    console.error("API_KEY environment variable is not set");
+    console.error("MOCHI_API_KEY environment variable is not set");
     process.exit(1);
   }
   return apiKey;
