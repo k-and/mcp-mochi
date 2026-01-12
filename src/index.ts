@@ -44,7 +44,7 @@ const CreateCardRequestSchema = z.object({
     .string()
     .min(1)
     .describe(
-      "Markdown content of the card. Separate front and back using a horizontal rule (---) or use brackets for {{cloze deletion}}."
+      "Markdown content of the card. Separate the question and answer with a horizontal rule surrounded by newlines: '\\n---\\n'"
     ),
   deckId: z.string().min(1).describe("ID of the deck to create the card in"),
   templateId: z
@@ -59,12 +59,6 @@ const CreateCardRequestSchema = z.object({
     .array(z.string())
     .optional()
     .describe("Optional array of tags to add to the card"),
-  fields: z
-    .record(z.string(), CreateCardFieldSchema)
-    .optional()
-    .describe(
-      "Map of field IDs to field values. Required only when using a template"
-    ),
 });
 
 const UpdateCardRequestSchema = z.object({
@@ -131,17 +125,17 @@ const CreateCardFromTemplateSchema = z.object({
   templateId: z
     .string()
     .min(1)
-    .describe("ID of the template to use. Get this from mochi_list_templates."),
+    .describe("ID of the template to use. Get this from list_templates."),
   deckId: z
     .string()
     .min(1)
     .describe(
-      "ID of the deck to create the card in. Get this from mochi_list_decks."
+      "ID of the deck to create the card in. Get this from list_decks."
     ),
   fields: z
     .record(z.string(), z.string())
     .describe(
-      'Map of field NAMES (not IDs) to values. E.g., { "Word": "serendipity" } or { "Front": "Question?", "Back": "Answer" }'
+      'Map of field NAMES (not IDs) to values. E.g., { "Word": "serendipity" }'
     ),
   tags: z
     .array(z.string())
@@ -169,7 +163,7 @@ type AddAttachmentRequest = z.infer<typeof AddAttachmentSchema>;
 
 // Helper to transform camelCase params to hyphenated format for Mochi API
 function toMochiCreateCardRequest(
-  params: CreateCardRequest
+  params: CreateCardRequest & { fields?: Record<string, string> }
 ): Record<string, unknown> {
   return {
     content: params.content,
@@ -272,7 +266,7 @@ const CardSchema = z
     content: z
       .string()
       .describe(
-        'Markdown content of the card. Separate front and back of card with "---"'
+        'Markdown content of the card. Separate the question and answer with "---"'
       ),
     name: z.string().describe("Display name of the card"),
     "deck-id": z.string().describe("ID of the deck containing the card"),
@@ -349,15 +343,15 @@ const GetDueCardsResponseSchema = z.object({
 });
 
 function getApiKey(): string {
-  const apiKey = process.env.MOCHI_API_KEY;
+  const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    console.error("MOCHI_API_KEY environment variable is not set");
+    console.error("API_KEY environment variable is not set");
     process.exit(1);
   }
   return apiKey;
 }
 
-const MOCHI_API_KEY = getApiKey();
+const API_KEY = getApiKey();
 
 export class MochiClient {
   private api: AxiosInstance;
@@ -374,6 +368,31 @@ export class MochiClient {
         "Content-Type": "application/json",
       },
     });
+
+    // Add response interceptor for error handling
+    this.api.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (axios.isAxiosError(error) && error.response) {
+          const { status, data } = error.response;
+          // Mochi API returns errors as arrays or objects
+          if (data && (Array.isArray(data) || typeof data === "object")) {
+            throw new MochiError(data, status);
+          }
+          // Fallback for string error messages
+          if (typeof data === "string" && data.length > 0) {
+            throw new MochiError([data], status);
+          }
+          // Generic error with status
+          throw new MochiError(
+            [`Request failed with status ${status}`],
+            status
+          );
+        }
+        // Re-throw non-axios errors
+        throw error;
+      }
+    );
   }
 
   async createCard(request: CreateCardRequest): Promise<CreateCardResponse> {
@@ -489,7 +508,6 @@ export class MochiClient {
       content,
       deckId: request.deckId,
       templateId: request.templateId,
-      fields,
       tags: request.tags,
     };
 
@@ -610,7 +628,7 @@ const AddAttachmentResponseSchema = z.object({
 });
 
 // Create Mochi client
-const mochiClient = new MochiClient(MOCHI_API_KEY);
+const mochiClient = new MochiClient(API_KEY);
 
 // Helper to format errors for tool responses
 function formatToolError(error: unknown): {
@@ -663,11 +681,11 @@ function formatToolError(error: unknown): {
 // Register tools
 // Note: Using type assertions due to Zod version compatibility between SDK (v4) and project (v3)
 server.registerTool(
-  "mochi_create_flashcard",
+  "create_flashcard",
   {
     title: "Create flashcard on Mochi",
     description:
-      "Create a new flashcard in Mochi. Look up deckId with mochi_list_decks first. Use mochi_create_card_from_template if the deck has a template-id defined.",
+      "Create a new flashcard in Mochi. Look up deckId with list_decks first. Use create_card_from_template if the deck has a template-id defined.",
     inputSchema: CreateCardRequestSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -691,11 +709,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_create_card_from_template",
+  "create_card_from_template",
   {
     title: "Create flashcard from template on Mochi",
     description:
-      "Create a flashcard using a template with field names (not IDs). Automatically maps field names to IDs. Get templates with mochi_list_templates, decks with mochi_list_decks.",
+      "Create a flashcard using a template with field names (not IDs). Automatically maps field names to IDs. Get templates with list_templates, decks with list_decks.",
     inputSchema: CreateCardFromTemplateSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -719,11 +737,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_update_flashcard",
+  "update_flashcard",
   {
     title: "Update flashcard on Mochi",
     description:
-      "Update an existing flashcard's content, deck, template, or fields. Use mochi_delete_flashcard to delete or mochi_archive_flashcard to archive.",
+      "Update an existing flashcard's content, deck, template, or fields. Use delete_flashcard to delete or archive_flashcard to archive.",
     inputSchema: UpdateFlashcardToolSchema,
     outputSchema: UpdateCardResponseSchema,
     annotations: {
@@ -756,11 +774,11 @@ const DeleteFlashcardResponseSchema = z
   .strict();
 
 server.registerTool(
-  "mochi_delete_flashcard",
+  "delete_flashcard",
   {
     title: "Delete flashcard on Mochi",
     description:
-      "Permanently delete a flashcard and its attachments. WARNING: This cannot be undone. For soft deletion, use mochi_update_flashcard with trashed: true.",
+      "Permanently delete a flashcard and its attachments. WARNING: This cannot be undone. For soft deletion, use update_flashcard with trashed: true.",
     inputSchema: DeleteFlashcardToolSchema,
     outputSchema: DeleteFlashcardResponseSchema,
     annotations: {
@@ -785,7 +803,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_archive_flashcard",
+  "archive_flashcard",
   {
     title: "Archive flashcard on Mochi",
     description:
@@ -815,7 +833,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_add_attachment",
+  "add_attachment",
   {
     title: "Add attachment to flashcard on Mochi",
     description:
@@ -843,7 +861,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_list_flashcards",
+  "list_flashcards",
   {
     title: "List flashcards on Mochi",
     description:
@@ -871,7 +889,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_list_decks",
+  "list_decks",
   {
     title: "List decks on Mochi",
     description: "List all decks. Use to get deckId for other operations.",
@@ -898,11 +916,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_list_templates",
+  "list_templates",
   {
     title: "List templates on Mochi",
     description:
-      "List all templates. Use with mochi_create_card_from_template for easy template-based card creation.",
+      "List all templates. Use with create_card_from_template for easy template-based card creation.",
     inputSchema: ListTemplatesParamsSchema.shape,
     outputSchema: ListTemplatesResponseSchema,
     annotations: {
@@ -926,7 +944,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_get_template",
+  "get_template",
   {
     title: "Get template by ID on Mochi",
     description:
@@ -954,7 +972,7 @@ server.registerTool(
 );
 
 server.registerTool(
-  "mochi_get_due_cards",
+  "get_due_cards",
   {
     title: "Get due flashcards on Mochi",
     description:
@@ -1051,7 +1069,7 @@ server.registerPrompt(
 - Utilize cloze prompts when applicable, like "This is a text with {{hidden}} part. Then don't use '---' separator.".
 - Focus on effective retrieval practice by being concise and clear.
 - Make it just challenging enough to reinforce specific facts.
-- Only use mochi_create_card_from_template if the deck has a template-id defined. Otherwise use mochi_create_flashcard.
+- Only use create_card_from_template if the deck has a template-id defined. Otherwise use create_flashcard.
 Input: ${input}
 `,
         },
