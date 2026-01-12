@@ -59,6 +59,12 @@ const CreateCardRequestSchema = z.object({
     .array(z.string())
     .optional()
     .describe("Optional array of tags to add to the card"),
+  attachments: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe(
+      "Map of filename to base64 data. Reference in content as ![alt](filename). Filename: alphanumeric 4-16 chars + extension (e.g., 'img1234.png')."
+    ),
 });
 
 const UpdateCardRequestSchema = z.object({
@@ -141,25 +147,21 @@ const CreateCardFromTemplateSchema = z.object({
     .array(z.string())
     .optional()
     .describe("Optional array of tags to add to the card"),
-});
-
-// Schema for adding attachments
-const AddAttachmentSchema = z.object({
-  cardId: z.string().min(1).describe("ID of the card to attach the file to"),
-  data: z.string().min(1).describe("Base64-encoded file data"),
-  filename: z
-    .string()
-    .min(1)
-    .describe("Filename with extension (e.g., 'image.png', 'audio.mp3')"),
-  contentType: z
-    .string()
+  attachments: z
+    .record(z.string(), z.string())
     .optional()
     .describe(
-      "MIME type of the file (e.g., 'image/png'). Can be inferred from filename if not provided."
+      "Map of filename to base64 data. Reference in field values as ![alt](filename). Filename: alphanumeric 4-16 chars + extension (e.g., 'img1234.png')."
     ),
 });
 
-type AddAttachmentRequest = z.infer<typeof AddAttachmentSchema>;
+// Internal type for adding attachments (used by addAttachment method)
+interface AddAttachmentRequest {
+  cardId: string;
+  data: string;
+  filename: string;
+  contentType?: string;
+}
 
 // Helper to transform camelCase params to hyphenated format for Mochi API
 function toMochiCreateCardRequest(
@@ -569,7 +571,7 @@ export class MochiClient {
 
     return {
       filename: request.filename,
-      markdown: `![](@media/${request.filename})`,
+      markdown: `![](${request.filename})`,
     };
   }
 }
@@ -615,16 +617,6 @@ const ArchiveFlashcardToolSchema = z.object({
     .boolean()
     .default(true)
     .describe("Set to true to archive, false to unarchive"),
-});
-
-// Output schema for attachment response
-const AddAttachmentResponseSchema = z.object({
-  filename: z.string().describe("The filename of the uploaded attachment"),
-  markdown: z
-    .string()
-    .describe(
-      "Markdown reference to use in card content, e.g. ![](@media/filename)"
-    ),
 });
 
 // Create Mochi client
@@ -685,7 +677,7 @@ server.registerTool(
   {
     title: "Create flashcard on Mochi",
     description:
-      "Create a new flashcard in Mochi. Look up deckId with list_decks first. Use create_card_from_template if the deck has a template-id defined. IMPORTANT: To add images/audio/files: 1) Create the card (include placeholder with id like '![](ChWupMjQ.png)' in content), 2) Use add_attachment with the returned card ID to upload the file with the matching id.",
+      "Create a new flashcard. Get deckId from list_decks. To add images/audio: 1) Reference in content as ![](filename.png), 2) Add to attachments object as { 'filename.png': 'base64data' }. Filename must be alphanumeric 4-16 chars + extension.",
     inputSchema: CreateCardRequestSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -698,6 +690,18 @@ server.registerTool(
   async (args: CreateCardRequest) => {
     try {
       const response = await mochiClient.createCard(args);
+
+      // Upload attachments if provided
+      if (args.attachments) {
+        for (const [filename, data] of Object.entries(args.attachments)) {
+          await mochiClient.addAttachment({
+            cardId: response.id,
+            filename,
+            data,
+          });
+        }
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
@@ -713,7 +717,7 @@ server.registerTool(
   {
     title: "Create flashcard from template on Mochi",
     description:
-      "Create a flashcard using a template with field names (not IDs). Automatically maps field names to IDs. Get templates with list_templates, decks with list_decks.",
+      "Create a flashcard using a template. Maps field names to IDs automatically. Supports attachments: reference as ![](filename.png) in fields, provide data in attachments object.",
     inputSchema: CreateCardFromTemplateSchema,
     outputSchema: CreateCardResponseSchema,
     annotations: {
@@ -726,6 +730,18 @@ server.registerTool(
   async (args: CreateCardFromTemplateParams) => {
     try {
       const response = await mochiClient.createCardFromTemplate(args);
+
+      // Upload attachments if provided
+      if (args.attachments) {
+        for (const [filename, data] of Object.entries(args.attachments)) {
+          await mochiClient.addAttachment({
+            cardId: response.id,
+            filename,
+            data,
+          });
+        }
+      }
+
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
@@ -822,34 +838,6 @@ server.registerTool(
       const response = await mochiClient.updateCard(args.cardId, {
         archived: args.archived,
       });
-      return {
-        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
-        structuredContent: response,
-      };
-    } catch (error) {
-      return formatToolError(error);
-    }
-  }
-);
-
-server.registerTool(
-  "add_attachment",
-  {
-    title: "Add attachment to flashcard on Mochi",
-    description:
-      "Upload an attachment (image, audio, etc.) to an EXISTING card using base64 data. The card content must already include the markdown reference '![](@media/filename)' where filename matches the uploaded file. Workflow: 1) Create card with create_flashcard (include '![](@media/filename.png)' in content), 2) Upload file with this tool using the card ID and matching filename. For URL-based images, just use standard markdown in card content instead.",
-    inputSchema: AddAttachmentSchema,
-    outputSchema: AddAttachmentResponseSchema,
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: true,
-    },
-  },
-  async (args: AddAttachmentRequest) => {
-    try {
-      const response = await mochiClient.addAttachment(args);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
