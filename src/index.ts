@@ -165,14 +165,13 @@ interface AddAttachmentRequest {
 
 // Helper to transform camelCase params to hyphenated format for Mochi API
 function toMochiCreateCardRequest(
-  params: CreateCardRequest & { fields?: Record<string, string> }
+  params: CreateCardRequest
 ): Record<string, unknown> {
   return {
     content: params.content,
     "deck-id": params.deckId,
     "template-id": params.templateId,
     "manual-tags": params.tags,
-    fields: params.fields,
   };
 }
 
@@ -506,14 +505,16 @@ export class MochiClient {
     // Build content from field values (joined with separator for multi-field templates)
     const content = fieldValues.join("\n---\n");
 
-    const createRequest: CreateCardRequest = {
+    const mochiRequest = {
       content,
-      deckId: request.deckId,
-      templateId: request.templateId,
-      tags: request.tags,
+      "deck-id": request.deckId,
+      "template-id": request.templateId,
+      "manual-tags": request.tags,
+      fields,
     };
 
-    return this.createCard(createRequest);
+    const response = await this.api.post("/cards", mochiRequest);
+    return CreateCardResponseSchema.parse(response.data);
   }
 
   async deleteCard(cardId: string): Promise<void> {
