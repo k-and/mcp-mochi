@@ -17,7 +17,9 @@
     "dev": "ts-node-esm src/index.ts",
     "dev:inspect": "npx @modelcontextprotocol/inspector ts-node-esm src/index.ts",
     "test": "jest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "version:minor": "npm version minor",
+    "release:minor": "npm run version:minor && npm publish"
   },
   "keywords": [
     "mcp",
@@ -28,6 +30,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
     "axios": "^1.6.7",
