@@ -695,6 +695,32 @@ export class MochiClient {
     await this.api.delete(`/cards/${cardId}`);
   }
 
+  async createDeck(
+    request: CreateDeckRequest
+  ): Promise<z.infer<typeof DeckSchema>> {
+    const mochiRequest = toMochiCreateDeckRequest(request);
+    const response = await this.api.post("/decks", mochiRequest);
+    return DeckSchema.parse(response.data);
+  }
+
+  async getDeck(deckId: string): Promise<z.infer<typeof DeckSchema>> {
+    const response = await this.api.get(`/decks/${deckId}`);
+    return DeckSchema.parse(response.data);
+  }
+
+  async updateDeck(
+    deckId: string,
+    request: Omit<UpdateDeckRequest, "deckId">
+  ): Promise<z.infer<typeof DeckSchema>> {
+    const mochiRequest = toMochiUpdateDeckRequest(request);
+    const response = await this.api.post(`/decks/${deckId}`, mochiRequest);
+    return DeckSchema.parse(response.data);
+  }
+
+  async deleteDeck(deckId: string): Promise<void> {
+    await this.api.delete(`/decks/${deckId}`);
+  }
+
   async addAttachment(
     request: AddAttachmentRequest
   ): Promise<{ filename: string; markdown: string }> {
@@ -805,6 +831,153 @@ const ArchiveFlashcardToolSchema = z.object({
     .default(true)
     .describe("Set to true to archive, false to unarchive"),
 });
+
+// Deck CRUD schemas and helpers
+const deckSortByDescription =
+  "How cards are sorted on the deck page. One of: none, lexigraphically, lexicographically, created-at, updated-at, retention-rate-asc, interval-length";
+const deckCardsViewDescription =
+  "How cards are displayed on the deck page. One of: list, grid, note, column";
+
+const CreateDeckRequestSchema = z.object({
+  name: z.string().min(1).describe("Name of the deck"),
+  parentId: z
+    .string()
+    .optional()
+    .describe("ID of a parent deck to nest this deck under"),
+  sort: z
+    .number()
+    .int()
+    .optional()
+    .describe("Sort order integer (decks are sorted numerically by this value)"),
+  archived: z
+    .boolean()
+    .optional()
+    .describe("Whether the deck is archived on creation"),
+  trashed: z
+    .string()
+    .optional()
+    .describe(
+      "ISO 8601 timestamp to mark the deck as trashed on creation (rare)"
+    ),
+  sortBy: z.string().optional().describe(deckSortByDescription),
+  sortByDirection: z
+    .boolean()
+    .optional()
+    .describe("When true, reverses the sort direction"),
+  cardsView: z.string().optional().describe(deckCardsViewDescription),
+  showSides: z
+    .boolean()
+    .optional()
+    .describe("Whether to show all sides of each card on the deck page"),
+  reviewReverse: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, cards in the deck are also reviewed bottom-to-top in addition to top-to-bottom"
+    ),
+});
+
+const UpdateDeckToolSchema = z.object({
+  deckId: z.string().describe("ID of the deck to update"),
+  name: z.string().optional().describe("New name for the deck"),
+  parentId: z
+    .string()
+    .optional()
+    .describe("ID of a parent deck to nest this deck under (move)"),
+  sort: z.number().int().optional().describe("Sort order integer"),
+  archived: z.boolean().optional().describe("Whether the deck is archived"),
+  trashed: z
+    .string()
+    .optional()
+    .describe(
+      "ISO 8601 timestamp to mark the deck as trashed. Cards and child decks inside also become invisible for review."
+    ),
+  sortBy: z.string().optional().describe(deckSortByDescription),
+  sortByDirection: z
+    .boolean()
+    .optional()
+    .describe("When true, reverses the sort direction"),
+  cardsView: z.string().optional().describe(deckCardsViewDescription),
+  showSides: z
+    .boolean()
+    .optional()
+    .describe("Whether to show all sides on the deck page"),
+  reviewReverse: z
+    .boolean()
+    .optional()
+    .describe("If true, also review cards bottom-to-top"),
+});
+
+const GetDeckParamsSchema = z.object({
+  deckId: z.string().min(1).describe("ID of the deck to fetch"),
+});
+
+const DeleteDeckToolSchema = z.object({
+  deckId: z
+    .string()
+    .describe(
+      "ID of the deck to permanently delete. WARNING: This cannot be undone. Cards and child decks inside the deleted deck are NOT deleted - they become orphans. Use update_deck with trashed instead for recoverable behaviour."
+    ),
+});
+
+const DeleteDeckResponseSchema = z
+  .object({
+    success: z.boolean().describe("Whether the deletion was successful"),
+    deckId: z.string().describe("ID of the deleted deck"),
+  })
+  .strict();
+
+const ArchiveDeckToolSchema = z.object({
+  deckId: z.string().describe("ID of the deck to archive"),
+  archived: z
+    .boolean()
+    .default(true)
+    .describe("Set to true to archive, false to unarchive"),
+});
+
+type CreateDeckRequest = z.infer<typeof CreateDeckRequestSchema>;
+type UpdateDeckRequest = z.infer<typeof UpdateDeckToolSchema>;
+
+function toMochiCreateDeckRequest(
+  params: CreateDeckRequest
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { name: params.name };
+  if (params.parentId !== undefined) result["parent-id"] = params.parentId;
+  if (params.sort !== undefined) result.sort = params.sort;
+  if (params.archived !== undefined) result["archived?"] = params.archived;
+  if (params.trashed !== undefined) result["trashed?"] = params.trashed;
+  if (params.sortBy !== undefined) result["sort-by"] = params.sortBy;
+  if (params.sortByDirection !== undefined) {
+    result["sort-by-direction"] = params.sortByDirection;
+  }
+  if (params.cardsView !== undefined) result["cards-view"] = params.cardsView;
+  if (params.showSides !== undefined) result["show-sides?"] = params.showSides;
+  if (params.reviewReverse !== undefined) {
+    result["review-reverse?"] = params.reviewReverse;
+  }
+  return result;
+}
+
+function toMochiUpdateDeckRequest(
+  params: Omit<UpdateDeckRequest, "deckId">
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (params.name !== undefined) result.name = params.name;
+  if (params.parentId !== undefined) result["parent-id"] = params.parentId;
+  if (params.sort !== undefined) result.sort = params.sort;
+  if (params.archived !== undefined) result["archived?"] = params.archived;
+  if (params.trashed !== undefined) result["trashed?"] = params.trashed;
+  if (params.sortBy !== undefined) result["sort-by"] = params.sortBy;
+  if (params.sortByDirection !== undefined) {
+    result["sort-by-direction"] = params.sortByDirection;
+  }
+  if (params.cardsView !== undefined) result["cards-view"] = params.cardsView;
+  if (params.showSides !== undefined) result["show-sides?"] = params.showSides;
+  if (params.reviewReverse !== undefined) {
+    result["review-reverse?"] = params.reviewReverse;
+  }
+  return result;
+}
 
 // Create Mochi client
 const mochiClient = new MochiClient(API_KEY);
@@ -1164,6 +1337,149 @@ server.registerTool(
   async (args) => {
     try {
       const response = await mochiClient.getDueCards(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "create_deck",
+  {
+    title: "Create deck on Mochi",
+    description:
+      "Create a new deck. Optionally nest it under a parent deck with parentId. Deck IDs for 'parentId' come from list_decks.",
+    inputSchema: CreateDeckRequestSchema.shape,
+    outputSchema: DeckSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: CreateDeckRequest) => {
+    try {
+      const response = await mochiClient.createDeck(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "get_deck",
+  {
+    title: "Get deck by ID on Mochi",
+    description: "Get a single deck by its ID.",
+    inputSchema: GetDeckParamsSchema.shape,
+    outputSchema: DeckSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args: z.infer<typeof GetDeckParamsSchema>) => {
+    try {
+      const response = await mochiClient.getDeck(args.deckId);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "update_deck",
+  {
+    title: "Update deck on Mochi",
+    description:
+      "Update a deck's name, parent, sort order, archive state, trash state, or display options. Pass only the fields you want to change.",
+    inputSchema: UpdateDeckToolSchema.shape,
+    outputSchema: DeckSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof UpdateDeckToolSchema>) => {
+    try {
+      const { deckId, ...updateArgs } = args;
+      const response = await mochiClient.updateDeck(deckId, updateArgs);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "delete_deck",
+  {
+    title: "Delete deck on Mochi",
+    description:
+      "Permanently delete a deck. WARNING: This cannot be undone. Cards and child decks inside the deleted deck are NOT deleted - they become orphans. For a recoverable soft-delete, use update_deck with a trashed ISO timestamp instead.",
+    inputSchema: DeleteDeckToolSchema.shape,
+    outputSchema: DeleteDeckResponseSchema.shape,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof DeleteDeckToolSchema>) => {
+    try {
+      await mochiClient.deleteDeck(args.deckId);
+      const response = { success: true, deckId: args.deckId };
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "archive_deck",
+  {
+    title: "Archive deck on Mochi",
+    description:
+      "Archive or unarchive a deck. Archived decks hide their cards from reviews.",
+    inputSchema: ArchiveDeckToolSchema.shape,
+    outputSchema: DeckSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof ArchiveDeckToolSchema>) => {
+    try {
+      const response = await mochiClient.updateDeck(args.deckId, {
+        archived: args.archived,
+      });
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
