@@ -88,7 +88,7 @@ const UpdateCardRequestSchema = z.object({
   templateId: z.string().optional().describe("Template ID to use for the card."),
   archived: z.boolean().optional().describe("Whether the card is archived."),
   trashed: z
-    .union([z.boolean(), z.string()])
+    .union([z.boolean(), z.string().datetime()])
     .optional()
     .describe(
       "ISO 8601 timestamp to trash the card, or true (sends the current time) / false (untrash)."
@@ -823,7 +823,7 @@ const UpdateFlashcardToolSchema = z.object({
     .optional()
     .describe("Updated map of field IDs to field values."),
   trashed: z
-    .union([z.boolean(), z.string()])
+    .union([z.boolean(), z.string().datetime()])
     .optional()
     .describe(
       "ISO 8601 timestamp to trash the card, or true (sends the current time) / false (untrash)."
@@ -931,6 +931,7 @@ const CreateDeckRequestSchema = z.object({
     .describe("Whether the deck is archived on creation."),
   trashed: z
     .string()
+    .datetime()
     .optional()
     .describe(
       "ISO 8601 timestamp to mark the deck as trashed on creation (rare)."
@@ -964,6 +965,7 @@ const UpdateDeckToolSchema = z.object({
   archived: z.boolean().optional().describe("Whether the deck is archived."),
   trashed: z
     .string()
+    .datetime()
     .optional()
     .describe(
       "ISO 8601 timestamp to mark the deck as trashed. Cards and child decks inside also become invisible for review."
