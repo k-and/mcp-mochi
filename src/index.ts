@@ -785,6 +785,12 @@ export class MochiClient {
       markdown: `![](${request.filename})`,
     };
   }
+
+  async deleteAttachment(cardId: string, filename: string): Promise<void> {
+    await this.api.delete(
+      `/cards/${cardId}/attachments/${encodeURIComponent(filename)}`
+    );
+  }
 }
 
 // Server setup
@@ -846,6 +852,51 @@ const ArchiveFlashcardToolSchema = z.object({
 const GetFlashcardParamsSchema = z.object({
   cardId: z.string().min(1).describe("ID of the card to fetch."),
 });
+
+// Schemas for standalone attachment tools
+const AddAttachmentToolSchema = z.object({
+  cardId: z.string().describe("ID of the card to attach the file to."),
+  filename: z
+    .string()
+    .describe(
+      "Filename with extension. Must match exactly when referenced from card content (e.g. ![](img1234.png))."
+    ),
+  data: z.string().describe("File content encoded as base64."),
+  contentType: z
+    .string()
+    .optional()
+    .describe(
+      "MIME type (e.g. image/png, audio/mpeg). Inferred from the filename extension if omitted."
+    ),
+});
+
+const AddAttachmentResponseSchema = z
+  .object({
+    filename: z.string(),
+    markdown: z
+      .string()
+      .describe(
+        "Markdown snippet you can embed in card content, e.g. ![](img.png)."
+      ),
+  })
+  .strict();
+
+const DeleteAttachmentToolSchema = z.object({
+  cardId: z.string().describe("ID of the card the attachment belongs to."),
+  filename: z
+    .string()
+    .describe(
+      "Exact filename of the attachment to delete (including extension)."
+    ),
+});
+
+const DeleteAttachmentResponseSchema = z
+  .object({
+    success: z.boolean(),
+    cardId: z.string(),
+    filename: z.string(),
+  })
+  .strict();
 
 // Deck CRUD schemas and helpers
 const deckSortByDescription =
@@ -1523,6 +1574,72 @@ server.registerTool(
       const response = await mochiClient.updateDeck(args.deckId, {
         archived: args.archived,
       });
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "add_attachment",
+  {
+    title: "Add attachment to a flashcard on Mochi",
+    description:
+      "Attach a file (image, audio, etc.) to an existing card. The file is sent as base64-encoded data. Reference it from the card's content as ![](filename.ext). The filename must match exactly.",
+    inputSchema: AddAttachmentToolSchema.shape,
+    outputSchema: AddAttachmentResponseSchema.shape,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof AddAttachmentToolSchema>) => {
+    try {
+      const response = await mochiClient.addAttachment({
+        cardId: args.cardId,
+        filename: args.filename,
+        data: args.data,
+        contentType: args.contentType,
+      });
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "delete_attachment",
+  {
+    title: "Delete attachment from a flashcard on Mochi",
+    description:
+      "Remove an attachment from a card by its exact filename (including extension).",
+    inputSchema: DeleteAttachmentToolSchema.shape,
+    outputSchema: DeleteAttachmentResponseSchema.shape,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof DeleteAttachmentToolSchema>) => {
+    try {
+      await mochiClient.deleteAttachment(args.cardId, args.filename);
+      const response = {
+        success: true,
+        cardId: args.cardId,
+        filename: args.filename,
+      };
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
