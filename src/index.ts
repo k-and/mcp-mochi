@@ -700,6 +700,11 @@ export class MochiClient {
     await this.api.delete(`/cards/${cardId}`);
   }
 
+  async getCard(cardId: string): Promise<CreateCardResponse> {
+    const response = await this.api.get(`/cards/${cardId}`);
+    return CreateCardResponseSchema.parse(response.data);
+  }
+
   async createDeck(
     request: CreateDeckRequest
   ): Promise<z.infer<typeof DeckSchema>> {
@@ -835,6 +840,11 @@ const ArchiveFlashcardToolSchema = z.object({
     .boolean()
     .default(true)
     .describe("Set to true to archive, false to unarchive"),
+});
+
+// Schema for get flashcard tool
+const GetFlashcardParamsSchema = z.object({
+  cardId: z.string().min(1).describe("ID of the card to fetch"),
 });
 
 // Deck CRUD schemas and helpers
@@ -1231,6 +1241,34 @@ server.registerTool(
   async (args) => {
     try {
       const response = await mochiClient.listCards(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "get_flashcard",
+  {
+    title: "Get flashcard by ID on Mochi",
+    description:
+      "Fetch a single flashcard by its ID. Returns full card data including content, deck, template, fields, review history and timestamps.",
+    inputSchema: GetFlashcardParamsSchema.shape,
+    outputSchema: CreateCardResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args: z.infer<typeof GetFlashcardParamsSchema>) => {
+    try {
+      const response = await mochiClient.getCard(args.cardId);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
