@@ -1,7 +1,7 @@
 {
-  "name": "@fredrika/mcp-mochi",
-  "version": "2.6.0",
-  "description": "MCP server for Mochi flashcard integration",
+  "name": "@k-and/mcp-mochi",
+  "version": "1.0.0",
+  "description": "MCP server for Mochi flashcards with full API coverage. Fork of @fredrika/mcp-mochi.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -28,7 +28,10 @@
     "spaced-repetition",
     "model-context-protocol"
   ],
-  "author": "",
+  "author": "k-and (https://github.com/k-and)",
+  "contributors": [
+    "fredrikalindh (https://github.com/fredrikalindh)"
+  ],
   "license": "MIT",
   "publishConfig": {
     "access": "public"

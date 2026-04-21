@@ -1,18 +1,22 @@
-# Mochi MCP Server
+# mcp-mochi
 
-MCP server for [Mochi](https://mochi.cards) flashcard integration, allowing you to manage your flashcards through the Model Context Protocol.
+Model Context Protocol (MCP) server for [Mochi](https://mochi.cards) flashcards. This is a fork of [fredrikalindh/mcp-mochi](https://github.com/fredrikalindh/mcp-mochi) v2.6.0 with full Mochi API coverage (19 tools), faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.
 
 ## Features
 
-- Create, update, and delete flashcards
+- Create, update, archive and delete flashcards
 - Create cards from templates with automatic field name-to-ID mapping
-- Add attachments (images, audio) to cards
-- Get cards due for review
-- List flashcards, decks, and templates
+- Fetch a single flashcard or deck by ID
+- Full deck CRUD (create, get, update, archive, delete)
+- Create new templates
+- Add or remove attachments (images, audio) on any card
+- Get cards due for review on a given date
+- List flashcards, decks and templates
+- Automatic retry on Mochi's per-account concurrency limiter (HTTP 429)
 
 ## Usage with Claude Desktop
 
-Add the following to your `claude_desktop_config.json`:
+Add the following to your `claude_desktop_config.json`. Your `MOCHI_API_KEY` is in Mochi under **Settings → Account → Subscription → API Keys**.
 
 ### NPX (recommended)
 
@@ -21,7 +25,7 @@ Add the following to your `claude_desktop_config.json`:
   "mcpServers": {
     "mochi": {
       "command": "npx",
-      "args": ["-y", "@fredrika/mcp-mochi"],
+      "args": ["-y", "@k-and/mcp-mochi"],
       "env": {
         "MOCHI_API_KEY": "<YOUR_TOKEN>"
       }
@@ -50,7 +54,7 @@ Add the following to your `claude_desktop_config.json`:
 
 1. Clone and install dependencies:
    ```bash
-   git clone https://github.com/fredrika/mcp-mochi.git
+   git clone https://github.com/k-and/mcp-mochi.git
    cd mcp-mochi
    npm install
    ```
@@ -67,19 +71,44 @@ Add the following to your `claude_desktop_config.json`:
 
 ## Available Tools
 
+### Flashcards
+
 | Tool | Description |
 |------|-------------|
-| `mochi_create_flashcard` | Create a new flashcard in Mochi |
-| `mochi_create_card_from_template` | Create a flashcard using a template with field names (auto-maps to IDs) |
-| `mochi_update_flashcard` | Update a flashcard's content, deck, template, or fields. Can also soft-delete with `trashed` property |
-| `mochi_delete_flashcard` | Permanently delete a flashcard and its attachments (cannot be undone) |
-| `mochi_archive_flashcard` | Archive or unarchive a flashcard |
-| `mochi_add_attachment` | Add an attachment (image, audio, etc.) to a card using base64 data |
-| `mochi_list_flashcards` | List flashcards, optionally filtered by deck |
-| `mochi_list_decks` | List all decks |
-| `mochi_list_templates` | List all templates with their field definitions |
-| `mochi_get_template` | Get a single template by ID |
-| `mochi_get_due_cards` | Get flashcards due for review |
+| `create_flashcard` | Create a new flashcard in Mochi |
+| `create_card_from_template` | Create a flashcard using a template with field names (auto-maps to IDs) |
+| `get_flashcard` | Fetch a single flashcard by ID |
+| `list_flashcards` | List flashcards, optionally filtered by deck |
+| `update_flashcard` | Update a flashcard's content, deck, template, fields, position or trash state |
+| `archive_flashcard` | Archive or unarchive a flashcard |
+| `delete_flashcard` | Permanently delete a flashcard and its attachments |
+| `get_due_cards` | Get flashcards due for review on a given date |
+
+### Decks
+
+| Tool | Description |
+|------|-------------|
+| `create_deck` | Create a new deck, optionally nested under a parent |
+| `get_deck` | Fetch a single deck by ID |
+| `list_decks` | List all decks |
+| `update_deck` | Update a deck's name, parent, sort order, archive or trash state, or display options |
+| `archive_deck` | Archive or unarchive a deck |
+| `delete_deck` | Permanently delete a deck (contained cards and child decks are not cascaded) |
+
+### Templates
+
+| Tool | Description |
+|------|-------------|
+| `create_template` | Create a new template for cards |
+| `get_template` | Get a single template by ID |
+| `list_templates` | List all templates with their field definitions |
+
+### Attachments
+
+| Tool | Description |
+|------|-------------|
+| `add_attachment` | Attach a file (image, audio, etc.) to an existing card |
+| `delete_attachment` | Remove an attachment from a card by filename |
 
 ## Resources
 
@@ -100,9 +129,9 @@ Add the following to your `claude_desktop_config.json`:
 
 ```json
 {
-  "tool": "mochi_create_flashcard",
+  "tool": "create_flashcard",
   "params": {
-    "content": "What is MCP?\n---\nModel Context Protocol - a protocol for providing context to LLMs",
+    "content": "What is MCP?\n---\nModel Context Protocol, a protocol for providing context to LLMs",
     "deckId": "<DECK_ID>"
   }
 }
@@ -112,7 +141,7 @@ Add the following to your `claude_desktop_config.json`:
 
 ```json
 {
-  "tool": "mochi_create_card_from_template",
+  "tool": "create_card_from_template",
   "params": {
     "templateId": "<TEMPLATE_ID>",
     "deckId": "<DECK_ID>",
@@ -128,7 +157,19 @@ Add the following to your `claude_desktop_config.json`:
 
 ```json
 {
-  "tool": "mochi_get_due_cards",
+  "tool": "get_due_cards",
   "params": {}
+}
+```
+
+### Create a deck
+
+```json
+{
+  "tool": "create_deck",
+  "params": {
+    "name": "Linear Algebra",
+    "parentId": "<PARENT_DECK_ID>"
+  }
 }
 ```
