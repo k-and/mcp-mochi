@@ -556,7 +556,12 @@ export class MochiClient {
 
           // Retry on 429 with exponential backoff + jitter before converting to MochiError
           // The request config lives on error.config (canonical axios path), not error.response.config
-          if (status === 429 && error.config) {
+          // Skip multipart uploads - form-data streams are one-shot and cannot be replayed on a retry
+          if (
+            status === 429 &&
+            error.config &&
+            !(error.config.data instanceof FormData)
+          ) {
             const cfg = error.config as typeof error.config & {
               __retryAttempt?: number;
             };
