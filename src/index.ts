@@ -65,6 +65,18 @@ const CreateCardRequestSchema = z.object({
     .describe(
       "REQUIRED when referencing images/audio in content. Map of filename (with extension) to base64 data. Example: { 'img1234.png': '<base64>' } and reference as ![](img1234.png). The filename must match EXACTLY including extension."
     ),
+  pos: z
+    .string()
+    .optional()
+    .describe(
+      "Relative position within the deck. Cards are sorted lexicographically by this string. Example: to insert between '6' and '7', use '6V'."
+    ),
+  reviewReverse: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, the card is also reviewed in reverse order (bottom-to-top) in addition to top-to-bottom."
+    ),
 });
 
 const UpdateCardRequestSchema = z.object({
@@ -80,6 +92,18 @@ const UpdateCardRequestSchema = z.object({
     .record(z.string(), CreateCardFieldSchema)
     .optional()
     .describe("Updated map of field IDs to field values"),
+  pos: z
+    .string()
+    .optional()
+    .describe(
+      "Relative position within the deck (lexicographic). E.g. '6V' to sit between '6' and '7'."
+    ),
+  reviewReverse: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, also review the card bottom-to-top in addition to top-to-bottom."
+    ),
 });
 
 const ListDecksParamsSchema = z.object({
@@ -167,12 +191,17 @@ interface AddAttachmentRequest {
 function toMochiCreateCardRequest(
   params: CreateCardRequest
 ): Record<string, unknown> {
-  return {
+  const result: Record<string, unknown> = {
     content: params.content,
     "deck-id": params.deckId,
     "template-id": params.templateId,
     "manual-tags": params.tags,
   };
+  if (params.pos !== undefined) result.pos = params.pos;
+  if (params.reviewReverse !== undefined) {
+    result["review-reverse?"] = params.reviewReverse;
+  }
+  return result;
 }
 
 function toMochiUpdateCardRequest(
@@ -186,6 +215,10 @@ function toMochiUpdateCardRequest(
   if (params.archived !== undefined) result["archived?"] = params.archived;
   if (params.trashed !== undefined) result["trashed?"] = params.trashed;
   if (params.fields !== undefined) result.fields = params.fields;
+  if (params.pos !== undefined) result.pos = params.pos;
+  if (params.reviewReverse !== undefined) {
+    result["review-reverse?"] = params.reviewReverse;
+  }
   return result;
 }
 
@@ -742,6 +775,18 @@ const UpdateFlashcardToolSchema = z.object({
     .optional()
     .describe(
       "Set to true to soft-delete (move to trash). This can be undone by setting to false."
+    ),
+  pos: z
+    .string()
+    .optional()
+    .describe(
+      "Relative position within the deck (lexicographic). E.g. '6V' to sit between '6' and '7'."
+    ),
+  reviewReverse: z
+    .boolean()
+    .optional()
+    .describe(
+      "If true, also review the card bottom-to-top in addition to top-to-bottom."
     ),
 });
 
