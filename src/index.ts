@@ -354,6 +354,13 @@ function getApiKey(): string {
 
 const API_KEY = getApiKey();
 
+// Mochi caps each account to one concurrent API request
+// Bursts (e.g. a card create followed by attachment uploads) hit 429
+// Retry before surfacing the error so tool calls tolerate the limiter transparently
+const RETRY_MAX = 3;
+const RETRY_BASE_MS = 250;
+const RETRY_CAP_MS = 1500;
+
 export class MochiClient {
   private api: AxiosInstance;
   private token: string;
@@ -373,9 +380,29 @@ export class MochiClient {
     // Add response interceptor for error handling
     this.api.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
         if (axios.isAxiosError(error) && error.response) {
           const { status, data } = error.response;
+
+          // Retry on 429 with exponential backoff + jitter before converting to MochiError
+          // The request config lives on error.config (canonical axios path), not error.response.config
+          if (status === 429 && error.config) {
+            const cfg = error.config as typeof error.config & {
+              __retryAttempt?: number;
+            };
+            const attempt = (cfg.__retryAttempt ?? 0) + 1;
+            if (attempt <= RETRY_MAX) {
+              cfg.__retryAttempt = attempt;
+              const backoff = Math.min(
+                RETRY_CAP_MS,
+                RETRY_BASE_MS * 2 ** (attempt - 1)
+              );
+              const jitter = Math.random() * 100;
+              await new Promise((r) => setTimeout(r, backoff + jitter));
+              return this.api.request(cfg);
+            }
+          }
+
           // Mochi API returns errors as arrays or objects
           if (data && (Array.isArray(data) || typeof data === "object")) {
             throw new MochiError(data, status);
