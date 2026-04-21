@@ -245,8 +245,16 @@ function toMochiListCardsParams(
 const TemplateFieldSchema = z
   .object({
     id: z.string().describe("Unique identifier for the template field."),
-    name: z.string().describe("Display name of the field."),
-    pos: z.string().describe("Position of the field in the template."),
+    name: z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Display name of the field. Optional per Mochi API."),
+    pos: z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Position of the field in the template. Optional per Mochi API."),
     type: z
       .string()
       .optional()
@@ -666,9 +674,12 @@ export class MochiClient {
     const template = await this.getTemplate(request.templateId);
 
     // Map field names to IDs
+    // Skip unnamed fields - they can only be addressed by ID via create_flashcard
     const fieldNameToId: Record<string, string> = {};
     for (const [fieldId, field] of Object.entries(template.fields)) {
-      fieldNameToId[field.name] = fieldId;
+      if (field.name) {
+        fieldNameToId[field.name] = fieldId;
+      }
     }
 
     // Build the fields object with IDs
