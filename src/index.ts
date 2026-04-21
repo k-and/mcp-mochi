@@ -812,6 +812,14 @@ export class MochiClient {
       `/cards/${cardId}/attachments/${encodeURIComponent(filename)}`
     );
   }
+
+  async createTemplate(
+    request: CreateTemplateRequest
+  ): Promise<z.infer<typeof TemplateSchema>> {
+    const mochiRequest = toMochiCreateTemplateRequest(request);
+    const response = await this.api.post("/templates", mochiRequest);
+    return TemplateSchema.parse(response.data);
+  }
 }
 
 // Server setup
@@ -918,6 +926,93 @@ const DeleteAttachmentResponseSchema = z
     filename: z.string(),
   })
   .strict();
+
+// Template creation schemas and helpers
+// Input shape is looser than TemplateFieldSchema (response): name, pos, content
+// and options are optional on create, and there is no source field on input
+const TemplateFieldInputSchema = z
+  .object({
+    id: z.string().describe("Stable ID for the field (same as the map key)."),
+    name: z.string().optional().describe("Human-readable name of the field."),
+    type: z
+      .string()
+      .optional()
+      .describe(
+        "Field type. One of: text, boolean, number, draw, ai, speech, image, translate, transcription, dictionary, pinyin, furigana."
+      ),
+    pos: z
+      .string()
+      .optional()
+      .describe("Relative position within the template (lexicographic)."),
+    content: z
+      .string()
+      .optional()
+      .describe("Default content or instructions for this field."),
+    options: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Field-specific options. Common: multi-line? (boolean), hide-term, ai-task."
+      ),
+  })
+  .passthrough();
+
+const CreateTemplateRequestSchema = z.object({
+  name: z.string().min(1).max(64).describe("Template name (1-64 chars)."),
+  content: z
+    .string()
+    .min(1)
+    .describe(
+      "Markdown content using <<Field name>> placeholders. Separate sides with '\\n---\\n' on its own line."
+    ),
+  pos: z
+    .string()
+    .optional()
+    .describe("Relative position for sorting templates."),
+  fields: z
+    .record(z.string(), TemplateFieldInputSchema)
+    .describe("Map of field IDs to field definitions."),
+  style: z
+    .object({
+      textAlignment: z
+        .string()
+        .optional()
+        .describe("Text alignment. One of: left, center, right."),
+    })
+    .optional()
+    .describe("Styling options for the template."),
+  options: z
+    .object({
+      showSidesSeparately: z
+        .boolean()
+        .optional()
+        .describe("Whether to show template sides separately during review."),
+    })
+    .optional()
+    .describe("Template-level options."),
+});
+
+type CreateTemplateRequest = z.infer<typeof CreateTemplateRequestSchema>;
+
+function toMochiCreateTemplateRequest(
+  params: CreateTemplateRequest
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {
+    name: params.name,
+    content: params.content,
+    fields: params.fields,
+  };
+  if (params.pos !== undefined) result.pos = params.pos;
+  if (params.style?.textAlignment !== undefined) {
+    result.style = { "text-alignment": params.style.textAlignment };
+  }
+  if (params.options?.showSidesSeparately !== undefined) {
+    result.options = {
+      "show-sides-separately?": params.options.showSidesSeparately,
+    };
+  }
+  return result;
+}
 
 // Deck CRUD schemas and helpers
 const deckSortByDescription =
@@ -1663,6 +1758,34 @@ server.registerTool(
         cardId: args.cardId,
         filename: args.filename,
       };
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "create_template",
+  {
+    title: "Create template on Mochi",
+    description:
+      "Create a new template for cards. Templates use <<Field name>> placeholders in their markdown content. The fields map keys must match the id in each field definition. Call get_template on an existing template first if you want to see the shape.",
+    inputSchema: CreateTemplateRequestSchema.shape,
+    outputSchema: TemplateSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  async (args: z.infer<typeof CreateTemplateRequestSchema>) => {
+    try {
+      const response = await mochiClient.createTemplate(args);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,
