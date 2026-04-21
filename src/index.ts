@@ -325,7 +325,12 @@ const CardSchema = z
       .describe(
         'Markdown content of the card. Separate the question and answer with "---"'
       ),
-    name: z.string().describe("Display name of the card"),
+    name: z
+      .string()
+      .nullable()
+      .describe(
+        "Display name of the card. May be null for cards without an explicit name set."
+      ),
     "deck-id": z.string().describe("ID of the deck containing the card"),
     "template-id": z
       .string()
