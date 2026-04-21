@@ -199,33 +199,39 @@ function toMochiListCardsParams(
   return result;
 }
 
-const TemplateFieldSchema = z.object({
-  id: z.string().describe("Unique identifier for the template field"),
-  name: z.string().describe("Display name of the field"),
-  pos: z.string().describe("Position of the field in the template"),
-  type: z
-    .string()
-    .optional()
-    .nullable()
-    .describe(
-      "Field type: null/text for user input, or ai/speech/translate/dictionary for auto-generated"
-    ),
-  source: z
-    .string()
-    .optional()
-    .nullable()
-    .describe("Source field ID for auto-generated fields"),
-  options: z
-    .object({
-      "multi-line?": z
-        .boolean()
-        .optional()
-        .describe("Whether the field supports multiple lines of text"),
-    })
-    .passthrough()
-    .optional()
-    .describe("Additional options for the field"),
-});
+const TemplateFieldSchema = z
+  .object({
+    id: z.string().describe("Unique identifier for the template field"),
+    name: z.string().describe("Display name of the field"),
+    pos: z.string().describe("Position of the field in the template"),
+    type: z
+      .string()
+      .optional()
+      .nullable()
+      .describe(
+        "Field type. One of text, boolean, number, draw, ai, speech, image, translate, transcription, dictionary, pinyin, furigana. null/text means plain user input."
+      ),
+    source: z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Source field ID for auto-generated fields"),
+    content: z
+      .string()
+      .optional()
+      .describe("Default content or instructions for this field"),
+    options: z
+      .object({
+        "multi-line?": z
+          .boolean()
+          .optional()
+          .describe("Whether the field supports multiple lines of text"),
+      })
+      .passthrough()
+      .optional()
+      .describe("Additional options for the field"),
+  })
+  .passthrough();
 
 const TemplateSchema = z
   .object({
@@ -236,15 +242,29 @@ const TemplateSchema = z
     fields: z
       .record(z.string(), TemplateFieldSchema)
       .describe("Map of field IDs to field definitions"),
+    style: z
+      .object({
+        "text-alignment": z.string().optional(),
+      })
+      .passthrough()
+      .optional()
+      .describe("Styling options for the template"),
+    options: z
+      .object({
+        "show-sides-separately?": z.boolean().optional(),
+      })
+      .passthrough()
+      .optional()
+      .describe("Template-level options"),
   })
-  .strip();
+  .passthrough();
 
 const ListTemplatesResponseSchema = z
   .object({
     bookmark: z.string().describe("Pagination bookmark for fetching next page"),
     docs: z.array(TemplateSchema).describe("Array of templates"),
   })
-  .strip();
+  .passthrough();
 
 type ListTemplatesParams = z.infer<typeof ListTemplatesParamsSchema>;
 type ListTemplatesResponse = z.infer<typeof ListTemplatesResponseSchema>;
@@ -258,6 +278,9 @@ type CreateCardFromTemplateParams = z.infer<
 >;
 
 // Response Zod schemas
+// All use .passthrough() so any additional field Mochi returns (documented
+// or future) flows through to callers without a code release
+// Only the declared fields are validated
 const CardSchema = z
   .object({
     id: z.string().describe("Unique identifier for the card"),
@@ -271,24 +294,72 @@ const CardSchema = z
       ),
     name: z.string().describe("Display name of the card"),
     "deck-id": z.string().describe("ID of the deck containing the card"),
+    "template-id": z
+      .string()
+      .optional()
+      .nullable()
+      .describe("ID of the template applied to the card, if any"),
     fields: z
       .record(z.string(), z.unknown())
       .optional()
       .describe(
         "Map of field IDs to field values. Need to match the field IDs in the template"
       ),
+    pos: z
+      .string()
+      .optional()
+      .nullable()
+      .describe("Relative position within the deck (lexicographic)"),
+    "archived?": z
+      .boolean()
+      .optional()
+      .nullable()
+      .describe("Whether the card is archived"),
+    "trashed?": z
+      .union([z.object({ date: z.string() }), z.string(), z.boolean(), z.null()])
+      .optional()
+      .describe("Trashed timestamp (ISO 8601) or falsy if not trashed"),
+    "review-reverse?": z
+      .boolean()
+      .optional()
+      .nullable()
+      .describe("Whether the card is also reviewed bottom-to-top"),
+    "new?": z
+      .boolean()
+      .optional()
+      .describe("Whether the card is new (never reviewed)"),
+    "created-at": z
+      .object({ date: z.string() })
+      .optional()
+      .describe("When the card was created (ISO 8601, wrapped)"),
+    "updated-at": z
+      .object({ date: z.string() })
+      .optional()
+      .describe("When the card was last updated (ISO 8601, wrapped)"),
+    reviews: z
+      .array(z.unknown())
+      .optional()
+      .describe("Review history entries"),
+    references: z
+      .array(z.unknown())
+      .optional()
+      .describe("References to other cards or resources"),
+    attachments: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe("Attachments keyed by filename"),
   })
-  .strip();
+  .passthrough();
 
-const CreateCardResponseSchema = CardSchema.strip();
-const UpdateCardResponseSchema = CardSchema.strip();
+const CreateCardResponseSchema = CardSchema;
+const UpdateCardResponseSchema = CardSchema;
 
 const ListCardsResponseSchema = z
   .object({
     bookmark: z.string().describe("Pagination bookmark for fetching next page"),
     docs: z.array(CardSchema).describe("Array of cards"),
   })
-  .strip();
+  .passthrough();
 
 type CreateCardResponse = z.infer<typeof CreateCardResponseSchema>;
 type ListDecksResponse = z.infer<typeof ListDecksResponseSchema>;
@@ -299,6 +370,11 @@ const DeckSchema = z
     id: z.string().describe("Unique identifier for the deck"),
     sort: z.number().describe("Sort order of the deck"),
     name: z.string().describe("Display name of the deck"),
+    "parent-id": z
+      .string()
+      .optional()
+      .nullable()
+      .describe("ID of the parent deck if this deck is nested"),
     "template-id": z
       .string()
       .optional()
@@ -310,21 +386,57 @@ const DeckSchema = z
       .nullable()
       .describe("Whether the deck is archived"),
     "trashed?": z
-      .object({ date: z.string() })
+      .union([z.object({ date: z.string() }), z.string(), z.boolean(), z.null()])
+      .optional()
+      .describe(
+        "Timestamp when the deck was trashed, in ISO 8601 format (matching JavaScript's Date#toJSON). May also appear as a boolean or null."
+      ),
+    "sort-by": z
+      .string()
       .optional()
       .nullable()
       .describe(
-        "Timestamp when the deck was trashed, in ISO 8601 format (matching JavaScript's Date#toJSON)"
+        "How cards are sorted on the deck page. One of none, lexigraphically, lexicographically, created-at, updated-at, retention-rate-asc, interval-length"
       ),
+    "sort-by-direction": z
+      .boolean()
+      .optional()
+      .nullable()
+      .describe("If true, reverses the sort direction"),
+    "cards-view": z
+      .string()
+      .optional()
+      .nullable()
+      .describe("How cards are displayed. One of list, grid, note, column"),
+    "show-sides?": z
+      .boolean()
+      .optional()
+      .nullable()
+      .describe("Whether to show all sides of a card on the deck page"),
+    "review-reverse?": z
+      .boolean()
+      .optional()
+      .nullable()
+      .describe(
+        "Whether cards in this deck are also reviewed bottom-to-top in addition to top-to-bottom"
+      ),
+    "created-at": z
+      .object({ date: z.string() })
+      .optional()
+      .describe("When the deck was created"),
+    "updated-at": z
+      .object({ date: z.string() })
+      .optional()
+      .describe("When the deck was last updated"),
   })
-  .strip();
+  .passthrough();
 
 const ListDecksResponseSchema = z
   .object({
     bookmark: z.string().describe("Pagination bookmark for fetching next page"),
     docs: z.array(DeckSchema).describe("Array of decks"),
   })
-  .strip();
+  .passthrough();
 
 const DueCardSchema = z
   .object({
@@ -339,9 +451,11 @@ const DueCardSchema = z
   })
   .passthrough();
 
-const GetDueCardsResponseSchema = z.object({
-  cards: z.array(DueCardSchema).describe("Array of cards due for review"),
-});
+const GetDueCardsResponseSchema = z
+  .object({
+    cards: z.array(DueCardSchema).describe("Array of cards due for review"),
+  })
+  .passthrough();
 
 function getApiKey(): string {
   const apiKey = process.env.MOCHI_API_KEY;
