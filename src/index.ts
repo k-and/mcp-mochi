@@ -87,7 +87,12 @@ const UpdateCardRequestSchema = z.object({
   deckId: z.string().optional().describe("ID of the deck to move the card to."),
   templateId: z.string().optional().describe("Template ID to use for the card."),
   archived: z.boolean().optional().describe("Whether the card is archived."),
-  trashed: z.boolean().optional().describe("Whether the card is trashed."),
+  trashed: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .describe(
+      "ISO 8601 timestamp to trash the card, or true (sends the current time) / false (untrash)."
+    ),
   fields: z
     .record(z.string(), CreateCardFieldSchema)
     .optional()
@@ -213,7 +218,12 @@ function toMochiUpdateCardRequest(
   if (params.templateId !== undefined)
     result["template-id"] = params.templateId;
   if (params.archived !== undefined) result["archived?"] = params.archived;
-  if (params.trashed !== undefined) result["trashed?"] = params.trashed;
+  if (params.trashed !== undefined) {
+    // Mochi expects an ISO 8601 timestamp
+    // Convert boolean true to now for convenience, pass boolean false through to untrash, pass strings as-is
+    result["trashed?"] =
+      params.trashed === true ? new Date().toJSON() : params.trashed;
+  }
   if (params.fields !== undefined) result.fields = params.fields;
   if (params.pos !== undefined) result.pos = params.pos;
   if (params.reviewReverse !== undefined) {
@@ -813,10 +823,10 @@ const UpdateFlashcardToolSchema = z.object({
     .optional()
     .describe("Updated map of field IDs to field values."),
   trashed: z
-    .boolean()
+    .union([z.boolean(), z.string()])
     .optional()
     .describe(
-      "Set to true to soft-delete (move to trash). This can be undone by setting to false."
+      "ISO 8601 timestamp to trash the card, or true (sends the current time) / false (untrash)."
     ),
   pos: z
     .string()
