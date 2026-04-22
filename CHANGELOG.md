@@ -3,6 +3,7 @@
 ## [1.0.0] - 2026-04-22
 
 First public release of this fork of [`fredrikalindh/mcp-mochi`](https://github.com/fredrikalindh/mcp-mochi) v2.6.0.
+
 Extends upstream with full Mochi API coverage, faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.
 
 ### Added
