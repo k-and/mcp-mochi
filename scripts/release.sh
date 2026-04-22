@@ -32,6 +32,7 @@ fi
 
 VERSION="$1"
 TAG="v${VERSION}"
+EXPECTED_BRANCH="${RELEASE_BRANCH:-main}"
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
@@ -41,6 +42,13 @@ echo "==> Releasing ${TAG}"
 
 echo "==> Checking preconditions"
 
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]]; then
+  echo "ERROR: must be on '$EXPECTED_BRANCH' to release (currently on '$CURRENT_BRANCH')" >&2
+  echo "       Hotfix override: RELEASE_BRANCH=<name> $0 $VERSION" >&2
+  exit 1
+fi
+
 PKG_VERSION=$(node -p "require('./package.json').version")
 if [[ "$PKG_VERSION" != "$VERSION" ]]; then
   echo "ERROR: package.json version ($PKG_VERSION) does not match ${VERSION}" >&2
@@ -49,6 +57,12 @@ fi
 
 if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "ERROR: tag ${TAG} does not exist locally. Create it first: git tag ${TAG}" >&2
+  exit 1
+fi
+
+if ! git merge-base --is-ancestor "$TAG" HEAD; then
+  echo "ERROR: tag ${TAG} is not reachable from HEAD of $CURRENT_BRANCH" >&2
+  echo "       Either retag at the right commit or check out the branch that contains it." >&2
   exit 1
 fi
 
@@ -64,6 +78,17 @@ fi
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "ERROR: not logged in to gh. Run 'gh auth login' first." >&2
+  exit 1
+fi
+
+# Extract the owner/name slug from the origin remote URL so gh release
+# targets our fork explicitly. Without this, gh defaults to the parent
+# repo on forks and the release creation fails with "tag has not been
+# pushed to <upstream>".
+ORIGIN_URL=$(git remote get-url origin)
+REPO_SLUG=$(echo "$ORIGIN_URL" | sed -E 's#.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#')
+if [[ -z "$REPO_SLUG" ]] || [[ "$REPO_SLUG" == "$ORIGIN_URL" ]]; then
+  echo "ERROR: could not derive owner/repo slug from origin URL: $ORIGIN_URL" >&2
   exit 1
 fi
 
@@ -93,24 +118,23 @@ npm publish --access=public
 
 # --- Push branch + tag -------------------------------------------------------
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-echo "==> Pushing ${BRANCH} and ${TAG} to origin"
-git push -u origin "$BRANCH"
+echo "==> Pushing ${CURRENT_BRANCH} and ${TAG} to origin"
+git push -u origin "$CURRENT_BRANCH"
 git push origin "$TAG"
 
 # --- Create GitHub Release ---------------------------------------------------
 
-echo "==> Creating GitHub Release"
+echo "==> Creating GitHub Release on ${REPO_SLUG}"
 gh release create "$TAG" \
+  --repo "$REPO_SLUG" \
   --title "$TAG" \
   --notes "$NOTES"
 
 # --- Summary -----------------------------------------------------------------
 
 PKG_NAME=$(node -p "require('./package.json').name")
-REPO_URL=$(gh repo view --json url -q .url)
 
 echo
 echo "==> Release ${TAG} complete"
 echo "    npm:    https://www.npmjs.com/package/${PKG_NAME}"
-echo "    github: ${REPO_URL}/releases/tag/${TAG}"
+echo "    github: https://github.com/${REPO_SLUG}/releases/tag/${TAG}"
