@@ -19,9 +19,9 @@
 #   3. Create GitHub Release with notes extracted from the CHANGELOG entry
 #
 # Why publish before push: publishing first hides the "npx command 404"
-# window on the more-visible surface (README users running the install).
+# window on the more-visible surface (README users running the install)
 # The repository-link 404 on npmjs.com is less visible and closes quickly
-# when push completes.
+# when push completes
 
 set -euo pipefail
 
@@ -96,7 +96,7 @@ fi
 # Extract the owner/name slug from the origin remote URL so gh release
 # targets our fork explicitly. Without this, gh defaults to the parent
 # repo on forks and the release creation fails with "tag has not been
-# pushed to <upstream>".
+# pushed to <upstream>"
 ORIGIN_URL=$(git remote get-url origin)
 REPO_SLUG=$(echo "$ORIGIN_URL" | sed -E 's#.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#')
 if [[ -z "$REPO_SLUG" ]] || [[ "$REPO_SLUG" == "$ORIGIN_URL" ]]; then
@@ -109,7 +109,7 @@ npm run build
 
 # --- Extract CHANGELOG section for release notes -----------------------------
 # Matches everything between "## [<version>]" and either the next "## [" or
-# the link reference "[<version>]:". Excludes the version header line itself.
+# the link reference "[<version>]:", excluding the version header line itself
 
 NOTES=$(awk -v ver="${VERSION}" '
   $0 ~ "^## \\[" ver "\\]"          { flag=1; next }

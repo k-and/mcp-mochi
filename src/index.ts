@@ -1873,7 +1873,7 @@ server.registerPrompt(
           type: "text",
           text: `Create a flashcard using the info below while adhering to these principles:
 - Keep questions and answers atomic.
-- Utilize cloze prompts when applicable, like "This is a text with {{hidden}} part. Then don't use '---' separator.".
+- Utilise cloze prompts when applicable, like "This is a text with {{hidden}} part. Then don't use '---' separator.".
 - Focus on effective retrieval practice by being concise and clear.
 - Make it just challenging enough to reinforce specific facts.
 - Only use create_card_from_template if the deck has a template-id defined. Otherwise use create_flashcard.
