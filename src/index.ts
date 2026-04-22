@@ -966,7 +966,7 @@ export class MochiClient {
 // Server setup
 const server = new McpServer({
   name: "mcp-server/mochi",
-  version: "1.0.3",
+  version: "1.1.0",
   websiteUrl: "https://github.com/k-and/mcp-mochi",
   icons: [
     {

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.1.0] - 2026-04-23
 
 ### Added
 
@@ -38,4 +38,5 @@ Fork of [`fredrikalindh/mcp-mochi`](https://github.com/fredrikalindh/mcp-mochi) 
 - `createCardFromTemplate` skips unnamed template fields when building the name-to-ID map
 - Skip retry on 429 for multipart uploads – `form-data` streams are one-shot and cannot be safely replayed
 
+[1.1.0]: https://github.com/k-and/mcp-mochi/releases/tag/v1.1.0
 [1.0.0]: https://github.com/k-and/mcp-mochi/releases/tag/v1.0.0

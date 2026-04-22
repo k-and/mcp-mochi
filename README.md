@@ -1,6 +1,6 @@
 # mcp-mochi
 
-Model Context Protocol (MCP) server for [Mochi](https://mochi.cards) flashcards. This is a fork of [fredrikalindh/mcp-mochi](https://github.com/fredrikalindh/mcp-mochi) v2.6.0 with full Mochi API coverage (19 tools), faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.
+Model Context Protocol (MCP) server for [Mochi](https://mochi.cards) flashcards. This is a fork of [fredrikalindh/mcp-mochi](https://github.com/fredrikalindh/mcp-mochi) v2.6.0 with full Mochi API coverage (20 tools), faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.
 
 ## Features
 
