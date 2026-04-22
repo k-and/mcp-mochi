@@ -60,9 +60,21 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! git merge-base --is-ancestor "$TAG" HEAD; then
-  echo "ERROR: tag ${TAG} is not reachable from HEAD of $CURRENT_BRANCH" >&2
-  echo "       Either retag at the right commit or check out the branch that contains it." >&2
+TAG_COMMIT=$(git rev-parse "${TAG}^{commit}")
+HEAD_COMMIT=$(git rev-parse HEAD)
+if [[ "$TAG_COMMIT" != "$HEAD_COMMIT" ]]; then
+  echo "ERROR: tag ${TAG} (${TAG_COMMIT:0:7}) does not point at HEAD (${HEAD_COMMIT:0:7})" >&2
+  echo "       npm publish takes the current working tree, but the GitHub Release is attached" >&2
+  echo "       to the tag's commit - if they differ, the two surfaces disagree." >&2
+  echo "       Either retag at HEAD (git tag -f ${TAG}) or check out the tagged commit." >&2
+  exit 1
+fi
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "ERROR: working tree has uncommitted changes" >&2
+  git status --short >&2
+  echo "       Commit or stash before releasing - npm publish would otherwise ship" >&2
+  echo "       a tree that doesn't match any commit." >&2
   exit 1
 fi
 
