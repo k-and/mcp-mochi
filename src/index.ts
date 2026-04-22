@@ -498,7 +498,12 @@ const DueCardSchema = z
   .object({
     id: z.string().describe("Unique identifier for the card."),
     content: z.string().describe("Markdown content of the card."),
-    name: z.string().describe("Display name of the card."),
+    name: z
+      .string()
+      .nullable()
+      .describe(
+        "Display name of the card. May be null for cards without an explicit name set."
+      ),
     "deck-id": z.string().describe("ID of the deck containing the card."),
     "new?": z
       .boolean()
