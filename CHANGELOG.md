@@ -5,6 +5,7 @@
 ### Added
 
 - `serverInfo.icons` and `serverInfo.websiteUrl` on the MCP server so compatible clients can display the project icon and a link to the repo
+- `search_flashcards` tool – case-insensitive substring search over card content, name or tags. Paginates `list_flashcards` internally up to 20 pages (2,000 cards); returns a `truncated` flag when results may be incomplete
 
 ## [1.0.0] - 2026-04-22
 

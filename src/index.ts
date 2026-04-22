@@ -518,6 +518,88 @@ const GetDueCardsResponseSchema = z
   })
   .passthrough();
 
+const SearchFlashcardsParamsSchema = z.object({
+  query: z
+    .string()
+    .trim()
+    .min(1)
+    .describe(
+      "The search string to match against card fields. Case-insensitive substring match. Whitespace is trimmed; empty queries are rejected."
+    ),
+  deckId: z
+    .string()
+    .optional()
+    .describe("Optional deck ID to restrict the search to a single deck."),
+  maxResults: z
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .optional()
+    .default(20)
+    .describe(
+      "Maximum number of matching cards to return. Default 20, cap 100."
+    ),
+  searchIn: z
+    .enum(["content", "name", "tags", "all"])
+    .optional()
+    .default("all")
+    .describe(
+      "Which card fields to search. 'all' searches content, name and tags. Default 'all'."
+    ),
+});
+
+const SearchFlashcardsResponseSchema = z
+  .object({
+    matches: z
+      .array(CardSchema)
+      .describe("Cards matching the query, up to maxResults."),
+    pagesScanned: z
+      .number()
+      .int()
+      .describe("Number of list_cards pages fetched while searching."),
+    truncated: z
+      .boolean()
+      .describe(
+        "True when the returned results may be incomplete. Set when the scan stopped before exhausting Mochi's pages, either because maxResults was reached or because the internal 20-page safety cap fired."
+      ),
+  })
+  .passthrough();
+
+type SearchFlashcardsParams = z.infer<typeof SearchFlashcardsParamsSchema>;
+type SearchFlashcardsResponse = z.infer<typeof SearchFlashcardsResponseSchema>;
+
+// Case-insensitive substring matcher for search_flashcards
+// Query is pre-lowercased by the caller; this function lowercases each card
+// field at the point of comparison
+// Defensive against CardSchema.name being nullable and tags being unusual shapes
+function matchesSearchQuery(
+  card: z.infer<typeof CardSchema>,
+  queryLower: string,
+  searchIn: "content" | "name" | "tags" | "all"
+): boolean {
+  const wantContent = searchIn === "all" || searchIn === "content";
+  const wantName = searchIn === "all" || searchIn === "name";
+  const wantTags = searchIn === "all" || searchIn === "tags";
+
+  if (wantContent && card.content.toLowerCase().includes(queryLower)) {
+    return true;
+  }
+  if (wantName && card.name && card.name.toLowerCase().includes(queryLower)) {
+    return true;
+  }
+  if (
+    wantTags &&
+    Array.isArray(card.tags) &&
+    card.tags.some(
+      (tag) => typeof tag === "string" && tag.toLowerCase().includes(queryLower)
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function getApiKey(): string {
   const apiKey = process.env.MOCHI_API_KEY;
   if (!apiKey) {
@@ -641,6 +723,55 @@ export class MochiClient {
       : undefined;
     const response = await this.api.get("/cards", { params: mochiParams });
     return ListCardsResponseSchema.parse(response.data);
+  }
+
+  async searchCards(
+    params: SearchFlashcardsParams
+  ): Promise<SearchFlashcardsResponse> {
+    const validated = SearchFlashcardsParamsSchema.parse(params);
+    const query = validated.query.toLowerCase();
+    const { searchIn, maxResults, deckId } = validated;
+
+    // Internal safety cap on pagination
+    // Defined in code, not exposed as input
+    const MAX_PAGES = 20;
+    const PAGE_SIZE = 100;
+
+    const matches: ListCardsResponse["docs"] = [];
+    let bookmark: string | undefined = undefined;
+    let pagesScanned = 0;
+    let exhausted = false;
+
+    outer: while (pagesScanned < MAX_PAGES) {
+      const page = await this.listCards({
+        deckId,
+        bookmark,
+        limit: PAGE_SIZE,
+      });
+      pagesScanned++;
+
+      for (const card of page.docs) {
+        if (matchesSearchQuery(card, query, searchIn)) {
+          matches.push(card);
+          if (matches.length >= maxResults) break outer;
+        }
+      }
+
+      if (!page.bookmark || page.docs.length === 0) {
+        exhausted = true;
+        break;
+      }
+      bookmark = page.bookmark;
+    }
+
+    return {
+      matches,
+      pagesScanned,
+      // Results may be incomplete whenever the scan stopped before exhausting
+      // Mochi's pages, regardless of whether the stop came from maxResults or
+      // the MAX_PAGES safety cap
+      truncated: !exhausted,
+    };
   }
 
   async listTemplates(
@@ -1428,6 +1559,34 @@ server.registerTool(
   async (args) => {
     try {
       const response = await mochiClient.listCards(args);
+      return {
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+        structuredContent: response,
+      };
+    } catch (error) {
+      return formatToolError(error);
+    }
+  }
+);
+
+server.registerTool(
+  "search_flashcards",
+  {
+    title: "Search flashcards on Mochi",
+    description:
+      "Find flashcards by case-insensitive substring match against content, name or tags. Mochi's API has no native search; this tool paginates list_cards and filters client-side. Optional deck filter. Scans up to 20 pages (2,000 cards) per call; if matches exceed maxResults or the scan cap fires before exhausting Mochi's pages, truncated=true in the response.",
+    inputSchema: SearchFlashcardsParamsSchema.shape,
+    outputSchema: SearchFlashcardsResponseSchema,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async (args) => {
+    try {
+      const response = await mochiClient.searchCards(args);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
         structuredContent: response,

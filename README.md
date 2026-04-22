@@ -79,6 +79,7 @@ Add the following to your `claude_desktop_config.json`. Your `MOCHI_API_KEY` is 
 | `create_card_from_template` | Create a flashcard using a template with field names (auto-maps to IDs) |
 | `get_flashcard` | Fetch a single flashcard by ID |
 | `list_flashcards` | List flashcards, optionally filtered by deck |
+| `search_flashcards` | Find flashcards by substring match against content, name or tags (client-side) |
 | `update_flashcard` | Update a flashcard's content, deck, template, fields, position or trash state |
 | `archive_flashcard` | Archive or unarchive a flashcard |
 | `delete_flashcard` | Permanently delete a flashcard and its attachments |
