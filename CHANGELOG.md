@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `serverInfo.icons` and `serverInfo.websiteUrl` on the MCP server so compatible clients can display the project icon and a link to the repo
+
 ## [1.0.0] - 2026-04-22
 
 Fork of [`fredrikalindh/mcp-mochi`](https://github.com/fredrikalindh/mcp-mochi) v2.6.0, extended with full Mochi API coverage, faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.

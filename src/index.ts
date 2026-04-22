@@ -836,6 +836,14 @@ export class MochiClient {
 const server = new McpServer({
   name: "mcp-server/mochi",
   version: "1.0.3",
+  websiteUrl: "https://github.com/k-and/mcp-mochi",
+  icons: [
+    {
+      src: "https://raw.githubusercontent.com/k-and/mcp-mochi/v1.1.0/assets/icon.png",
+      sizes: ["512x512"],
+      mimeType: "image/png",
+    },
+  ],
 });
 
 // Schema for update flashcard tool (combines cardId with update fields)
