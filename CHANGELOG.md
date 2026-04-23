@@ -7,6 +7,11 @@
 - `serverInfo.icons` and `serverInfo.websiteUrl` on the MCP server so compatible clients can display the project icon and a link to the repo
 - `search_flashcards` tool – case-insensitive substring search over card content, name or tags. Paginates `list_flashcards` internally up to 20 pages (2,000 cards); returns a `truncated` flag when results may be incomplete
 
+### Fixed
+
+- `DueCardSchema.name` now accepts `null` – Mochi's `GET /due` response can return `"name": null` for cards without an explicit name, same as `GET /cards/:id`
+- `bin["mcp-mochi"]` path normalised from `./dist/index.js` to `dist/index.js`, aligning with npm's expected shape and silencing the `script name was cleaned` warning on publish
+
 ## [1.0.0] - 2026-04-22
 
 Fork of [`fredrikalindh/mcp-mochi`](https://github.com/fredrikalindh/mcp-mochi) v2.6.0, extended with full Mochi API coverage, faithful response schemas and automatic retry on Mochi's per-account concurrency limiter.
